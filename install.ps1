@@ -120,8 +120,12 @@ if ($Update) {
             if ($DryRun) {
                 Write-Info 'skipped (dry run)'
             } else {
+                # nvim 的配置目录就是仓库里的 nvim/，lazy.nvim 会就地重写
+                # lazy-lock.json；本机插件版本与仓库锁定不一致就会弄脏工作树，
+                # ff-only pull 随即被拒绝。锁文件以仓库为准，拉取前丢弃本机漂移。
+                & git -C $repoRoot checkout -- nvim/lazy-lock.json 2>$null | Out-Null
                 & git -C $repoRoot pull --ff-only
-                if ($LASTEXITCODE -ne 0) { throw 'git pull failed; resolve it by hand and re-run.' }
+                if ($LASTEXITCODE -ne 0) { throw 'git pull failed; run `git -C <repo> status` and retry.' }
                 Write-Ok 'repository up to date'
             }
         }
@@ -204,6 +208,17 @@ if ($NoPlugins) {
         } else {
             Write-Ok 'plugins restored'
         }
+    }
+}
+
+# --- lock drift --------------------------------------------------------------
+
+if (-not $DryRun -and -not $NoPlugins -and (Test-Path -LiteralPath (Join-Path $repoRoot '.git'))) {
+    $lockDirty = & git -C $repoRoot status --porcelain -- nvim/lazy-lock.json 2>$null
+    if ($lockDirty) {
+        Write-Warn 'lazy-lock.json 与本机实际插件版本仍不一致（restore 没能完全对齐）'
+        Write-Info "以仓库为准: git -C `"$repoRoot`" checkout -- nvim/lazy-lock.json"
+        Write-Info '要固定本机版本: commit 后 push；否则下次 -Update 会丢弃这里的漂移'
     }
 }
 

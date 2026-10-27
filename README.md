@@ -86,6 +86,16 @@ nvim --headless "+Lazy! restore" +qa   # 按 lazy-lock.json 对齐插件版本
 
 插件本体装在 Neovim 的 data 目录里（Windows：`%LOCALAPPDATA%\nvim-data`），**不进仓库**。仓库里只跟 `lazy-lock.json`，保证各设备版本一致。
 
+### 锁文件为什么会挡住 pull
+
+`nvim/` 本身就是 git 工作树，而 lazy.nvim 会**就地重写** `nvim/lazy-lock.json`。只要本机装上的插件版本和仓库里锁定的不完全一致（`:Lazy update`、插件新增/移除、某台机器上首次安装），工作树就脏了，`git pull --ff-only` 会直接拒绝——这就是「拉不下来」的原因。
+
+规则很简单：**以仓库里的 lock 为准**。
+
+- `install.sh --update` / `install.ps1 -Update` 会在 pull 之前把这台机器的 lock 漂移丢掉，所以不会再被卡住；
+- 要升级插件，在**一台**机器上 `:Lazy update` → `git add nvim/lazy-lock.json` → commit/push，另一台再 `--update` 即可（自动 `Lazy restore` 会对齐）；
+- 想临时看本机装了什么，用 `:Lazy` 面板或 `git -C <repo> status`，别指望 lock 长期保持「本机最新」。
+
 ## 回滚
 
 ```bash
