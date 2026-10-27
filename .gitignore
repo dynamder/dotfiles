@@ -1,0 +1,7 @@
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# installer backups produced by install.sh / install.ps1
+nvim.bak-*
