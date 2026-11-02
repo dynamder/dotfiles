@@ -116,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File .\tests\install-idempotency.ps1
 - 字体：`JetBrainsMono NF`（等宽 + Nerd 图标）+ `Noto Serif SC`（中文正文）
 - Markdown：软换行、比例字体、居中窄栏、CJK 表格对齐
 - Rust / Zig：tree-sitter 高亮 + eglot（rust-analyzer / zls）+ 保存时 rustfmt / zig fmt
-- 语法库要单独编译：首次装好依赖后跑一次 `M-x treesit-install-language-grammar`
+- 语法库要单独编译：装好依赖后跑一次 `M-x my/install-treesit-grammars`
 
 细节、键位速查和排错见 [emacs/README.md](emacs/README.md)。
 

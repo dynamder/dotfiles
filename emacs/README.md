@@ -15,8 +15,12 @@ emacs/                     ← 这就是 ~/.emacs.d
 │   ├── my-ui.el           字体、主题、doom-modeline、窗口与交互
 │   ├── my-completion.el   vertico / orderless / marginalia / consult
 │   ├── my-markdown.el     写作环境：软换行、比例字体、居中栏、表格对齐
+│   ├── my-treesit.el      tree-sitter 语法库：源地址、编译器、一键安装
 │   ├── my-rust.el         Rust：rust-ts-mode + eglot + rustfmt
 │   └── my-zig.el          Zig：zig-ts-mode + zls + zig fmt
+├── bin/
+│   ├── cc.bat             把 zig cc 包装成 treesit 能用的 cc
+│   └── c++.bat            同上，C++ 版（只有带 scanner.cc 的语法库才用）
 └── themes/
     ├── rose-pine-common.el      三个变体共用的调色板 + 脸面表
     ├── rose-pine-theme.el       主变体（深色）
@@ -43,25 +47,27 @@ emacs/                     ← 这就是 ~/.emacs.d
 3. **重启 Emacs**。装包只在内存里生效，重启后才全部加载。
 4. 装 **tree-sitter 语法库**。Rust / Zig / Markdown 的高亮全靠它，而官方
    Windows 构建只带 `libtree-sitter.dll` 本体，语法库得自己编：
+
    ```elisp
-   M-x treesit-install-language-grammar RET rust RET
-   ;; 再依次装 zig / markdown / markdown_inline
+   M-x my/install-treesit-grammars      ; C-u 强制重装
    ```
-   需要 PATH 上有 C 编译器。这台机器上没装 mingw，而是借现成的 Zig：
-   `D:\bin\cc.bat` 内容是 `@zig cc -target x86_64-windows-gnu %*`，
-   `c++.bat` 把里面的 `cc` 换成 `c++`；该目录通过用户变量 `MYBIN` 挂进 PATH
-   （PATH 里写的是 `%MYBIN%`，换目录只改这个变量）。实测 Emacs 的
-   `executable-find` 认 `.bat`、`call-process` 也能直接执行，所以不用再装 mingw。
-   语法库会落在 `~/.emacs.d/tree-sitter/`，已在 `.gitignore` 里。
+
+   一条命令装 rust / zig / markdown / markdown_inline。源地址写在
+   `lisp/my-treesit.el` 的 `my/treesit-grammars` 里（Emacs 30 的
+   `treesit-language-source-alist` 默认是空的，不填就得每次手输网址）。
+
+   编译器用仓库自带的 `bin/cc.bat`，它把参数转发给 `zig cc`，所以**不要求
+   PATH 上有 cc、也不用装 mingw**，只要 Zig 本身在 PATH 上。路径由
+   `user-emacs-directory` 算出来，换机器 clone 完就能用，不需要复制任何文件。
 
    > **`zig cc` 不能原样当 `cc` 用。** 它在 Windows 上把对象文件叫 `parser.obj`，
-   > 而 treesit 链接时只收集 `*.o`，于是链接命令的输入列表是空的，报
+   > 而 treesit 的链接步只收集 `*.o`，于是链接命令的输入列表是空的，报
    > `zig: error: no input files`。所以 `cc.bat` 在 `-c` 编译成功后要把
-   > `<源文件名>.obj` 改名成 `.o`，这一步不能省。`-o` 显式给了输出名的调用
-   > （比如手动试编）不受影响。
-   写 Zig 的话也可以直接用 `M-x zig-ts-install-grammars`，它会把 zig 和两个
-   markdown 语法库一次装齐。
+   > `<源文件名>.obj` 改名成 `.o`。
+
+   macOS / Linux 不需要这套：`my/treesit-cc-program` 为 nil，直接走系统 `cc`。
    验证：`M-: (treesit-language-available-p 'rust)` 返回 `t`。
+
 5. 预览/导出需要 **pandoc**：
    ```powershell
    winget install JohnMacFarlane.Pandoc
@@ -296,7 +302,7 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 | 哪些依赖没装上 | `M-x my/packages-status` |
 | 索引过期 | 重跑 `M-x my/bootstrap-packages`（不要用裸的 `M-x package-refresh-contents`，它没有失败切换，也不在子进程里） |
 | 字体没生效 | `C-h v my/latin-font`，确认名字是注册名而非文件名 |
-| **打开 `.rs` / `.zig` 几乎没高亮** | 语法库没装：`M-: (treesit-language-available-p 'rust)` 为 `nil` 就去 `M-x treesit-install-language-grammar` |
+| **打开 `.rs` / `.zig` 几乎没高亮** | 语法库没装：`M-: (treesit-language-available-p 'rust)` 为 `nil` 就跑 `M-x my/install-treesit-grammars`；失败时看 `*Messages*` 里是 git 还是编译器的问题 |
 | **LSP 没连上**（modeline 没有 eglot 标识） | `M-x eglot` 手动起一次，看报什么；`rust-analyzer` / `zls` 必须在 PATH 上。zig 那边还要确认 `zig-ts-mode` 已登记到 `eglot-server-programs` |
 | **保存后代码被格式化坏 / 没格式化** | `M-x apheleia-mode` 开关对比；`M-: (alist-get 'zig-ts-mode apheleia-mode-alist)` 看映射是否生效 |
 | **`zig-ts-mode` 找不到** | `M-x my/packages-status` 看它是否 `ok`；它在 MELPA 上，源不通就 `C-u M-x my/bootstrap-packages` 重刷索引 |

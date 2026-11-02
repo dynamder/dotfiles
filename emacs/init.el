@@ -10,6 +10,7 @@
 ;;   my-ui.el          字体、主题、窗口外观、modeline
 ;;   my-completion.el  补全与搜索
 ;;   my-markdown.el    markdown 写作环境
+;;   my-treesit.el     tree-sitter 语法库：源地址、编译器、M-x my/install-treesit-grammars
 ;;   my-rust.el        Rust：rust-ts-mode + eglot + rustfmt
 ;;   my-zig.el         Zig：zig-ts-mode + zls + zig fmt
 ;;
@@ -60,7 +61,8 @@
 ;; 任何一个模块炸掉都不该让整个 Emacs 起不来。
 ;; my-ui 里"不依赖包"的部分（字体、主题、窗口）排在 modeline 之前，
 ;; 所以即使依赖缺失，外观设置也照样生效。
-(dolist (module '(my-packages my-ui my-completion my-markdown my-rust my-zig))
+(dolist (module '(my-packages my-ui my-completion my-markdown
+                  my-treesit my-rust my-zig))
   (let ((t0 (float-time)))
     (condition-case err
         (require module)
