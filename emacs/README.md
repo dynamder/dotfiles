@@ -53,6 +53,12 @@ emacs/                     ← 这就是 ~/.emacs.d
    （PATH 里写的是 `%MYBIN%`，换目录只改这个变量）。实测 Emacs 的
    `executable-find` 认 `.bat`、`call-process` 也能直接执行，所以不用再装 mingw。
    语法库会落在 `~/.emacs.d/tree-sitter/`，已在 `.gitignore` 里。
+
+   > **`zig cc` 不能原样当 `cc` 用。** 它在 Windows 上把对象文件叫 `parser.obj`，
+   > 而 treesit 链接时只收集 `*.o`，于是链接命令的输入列表是空的，报
+   > `zig: error: no input files`。所以 `cc.bat` 在 `-c` 编译成功后要把
+   > `<源文件名>.obj` 改名成 `.o`，这一步不能省。`-o` 显式给了输出名的调用
+   > （比如手动试编）不受影响。
    写 Zig 的话也可以直接用 `M-x zig-ts-install-grammars`，它会把 zig 和两个
    markdown 语法库一次装齐。
    验证：`M-: (treesit-language-available-p 'rust)` 返回 `t`。
