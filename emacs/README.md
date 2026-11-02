@@ -227,11 +227,12 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 
 | 症状 | 看什么 |
 | --- | --- |
+| **所有源都是 0.2 秒 fail** | 十有八九是 CA 证书没配：`M-: gnutls-trustfiles` 看那些路径是否全都不存在。`my/ensure-ca-bundle` 会自动换成 Git 自带的 bundle，见上文 |
 | **卡在 `Contacting host: ...:443`，`C-g` 也按不动** | 这是老版本的问题。现在探测和下载都在子进程里，父进程到点就 kill，不会再卡住。真遇到卡死先结束 `emacs.exe`，再 `M-x my/diagnose-network` |
 | **想知道哪个地址会挂住** | `M-x my/diagnose-network`。每个候选一行：`ok` / `fail` / `TIMEOUT (would hang Emacs)` + 耗时 |
-| **代理换了端口** | 不用改配置：每次启动都重新读注册表。想立刻刷新：`M-x my/apply-proxy`。想看当前值：`M-x my/packages-status` |
+| **代理换了端口** | 默认不用代理。要用就 `(setq my/use-proxy t)`，每次启动重新读注册表；`M-x my/apply-proxy` 立即刷新，`M-x my/packages-status` 看当前值 |
 | **代理拦了某个源** | `my/bootstrap-packages` 会换下一个候选；全挂时会自动**退回直连**再试一轮 |
-| **不想用代理** | `(setq my/use-proxy nil)`，或手动指定端口 `(setq my/proxy-override "127.0.0.1:7897")`（优先于系统设置） |
+| **不用代理** | 默认就是直连。想手动指定端口：`(setq my/proxy-override "127.0.0.1:7897")`（优先于系统设置） |
 | **启动后界面毫无变化** | 先看 Emacs 到底读哪个目录：`M-: (expand-file-name "~")`。Windows 上没设 `HOME` 时它是 `c:/Users/<你>/AppData/Roaming`，配置就该在 `%APPDATA%\.emacs.d`——确认那里也是 junction，见根 README |
 | 启动慢 / 想量化 | `M-x emacs-init-time`（正常应 < 1 秒，因为它不联网） |
 | 报错信息 | `*Messages*` buffer |
