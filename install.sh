@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Bootstrap this dotfiles repository as the Neovim configuration.
+# Bootstrap this dotfiles repository as the Neovim and Emacs configuration.
 #
 # Target platform: Linux / macOS / WSL. Windows users should run install.ps1.
 #
-# The config directory is resolved from the environment, never hard-coded:
-#   ${XDG_CONFIG_HOME:-$HOME/.config}/nvim
+# The config directories are resolved from the environment, never hard-coded:
+#   nvim  -> ${XDG_CONFIG_HOME:-$HOME/.config}/nvim
+#   emacs -> ~/.emacs.d          (Emacs' own fallback when XDG is absent)
 #
 # Usage: ./install.sh [options]
 set -euo pipefail
@@ -13,10 +14,11 @@ DRY_RUN=0
 NO_PLUGINS=0
 UPDATE=0
 TARGET_OVERRIDE=""
+EMACS_TARGET_OVERRIDE=""
 
 usage() {
   cat <<'EOF'
-Bootstrap this dotfiles repository as the Neovim configuration.
+Bootstrap this dotfiles repository as the Neovim and Emacs configuration.
 
 Usage: ./install.sh [options]
 
@@ -25,10 +27,16 @@ Options:
       --no-plugins   Skip the headless "Lazy restore" plugin installation
   -u, --update       Run "git pull --ff-only" before linking
   -t, --target DIR   Override the Neovim config directory (for testing)
+  -E, --emacs-target DIR
+                     Override the Emacs config directory (default: ~/.emacs.d)
   -h, --help         Show this help
 
 Environment:
   XDG_CONFIG_HOME    Config base directory (default: ~/.config)
+
+Links two directories from this repository:
+  nvim  -> ${XDG_CONFIG_HOME:-$HOME/.config}/nvim
+  emacs -> ~/.emacs.d
 
 Windows users: run install.ps1 instead.
 EOF
@@ -44,6 +52,11 @@ while [ $# -gt 0 ]; do
     -t|--target)
       [ $# -ge 2 ] || ddie "--target needs a directory"
       TARGET_OVERRIDE="$2"
+      shift
+      ;;
+    -E|--emacs-target)
+      [ $# -ge 2 ] || ddie "--emacs-target needs a directory"
+      EMACS_TARGET_OVERRIDE="$2"
       shift
       ;;
     -h|--help) usage; exit 0 ;;
@@ -69,12 +82,15 @@ warn() { printf '%s  !   %s%s\n' "$C_YELLOW" "$*" "$C_RESET"; }
 
 SELF="${BASH_SOURCE[0]:-$0}"
 REPO_ROOT="$(cd -- "$(dirname -- "$SELF")" && pwd -P)" || ddie "cannot locate repository root"
-SOURCE="$REPO_ROOT/nvim"
+SOURCE_NVIM="$REPO_ROOT/nvim"
+SOURCE_EMACS="$REPO_ROOT/emacs"
 
-[ -f "$SOURCE/init.lua" ] || ddie \
+[ -f "$SOURCE_NVIM/init.lua" ] || ddie \
   "cannot find nvim/init.lua next to this script — run it from the dotfiles repository root"
+[ -f "$SOURCE_EMACS/init.el" ] || ddie \
+  "cannot find emacs/init.el next to this script — run it from the dotfiles repository root"
 
-# --- resolve the Neovim config directory from the environment ----------------
+# --- resolve the config directories from the environment ---------------------
 
 if [ -n "$TARGET_OVERRIDE" ]; then
   TARGET="$TARGET_OVERRIDE"
@@ -82,11 +98,24 @@ else
   TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 fi
 
+if [ -n "$EMACS_TARGET_OVERRIDE" ]; then
+  EMACS_TARGET="$EMACS_TARGET_OVERRIDE"
+else
+  EMACS_TARGET="$HOME/.emacs.d"
+fi
+
 [ -n "$TARGET" ] || ddie "resolved an empty target directory; pass --target DIR"
 TARGET="${TARGET%/}"
 case "$TARGET" in
   ""|/|"$HOME"|"${HOME:-/nonexistent}")
     ddie "refusing to use '/${TARGET#/}' as the config directory" ;;
+esac
+
+[ -n "$EMACS_TARGET" ] || ddie "resolved an empty emacs target; pass --emacs-target DIR"
+EMACS_TARGET="${EMACS_TARGET%/}"
+case "$EMACS_TARGET" in
+  ""|/|"$HOME"|"${HOME:-/nonexistent}")
+    ddie "refusing to use '/${EMACS_TARGET#/}' as the emacs config directory" ;;
 esac
 
 # Resolve a path to its physical location; falls back to the input.
@@ -105,6 +134,7 @@ resolve() {
 
 step "dotfiles : $REPO_ROOT"
 step "nvim dir : $TARGET"
+step "emacs dir: $EMACS_TARGET"
 if [ "$DRY_RUN" = 1 ]; then
   warn "dry run: nothing will be changed"
 fi
@@ -136,46 +166,58 @@ if [ "$UPDATE" = 1 ]; then
   fi
 fi
 
-# --- inspect what is already at the target -----------------------------------
+# --- link each config directory into place -----------------------------------
 
-ALREADY_LINKED=0
-if [ -L "$TARGET" ] && [ "$(resolve "$TARGET")" = "$(resolve "$SOURCE")" ]; then
-  ALREADY_LINKED=1
-fi
+link_config() {
+  local source="$1" target="$2" label="$3"
 
-if [ "$ALREADY_LINKED" = 1 ]; then
-  ok "$TARGET already links to $SOURCE"
-else
-  if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
-    BACKUP="$TARGET.bak-$(date +%Y%m%d-%H%M%S)"
-    while [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; do
-      BACKUP="$BACKUP-$$"
+  if [ -L "$target" ] && [ "$(resolve "$target")" = "$(resolve "$source")" ]; then
+    ok "$label already links to $source"
+    return 0
+  fi
+
+  if [ -L "$target" ]; then
+    # 链接本身没有内容，备份没有意义；rm 只删链接，不碰它指向的目录。
+    if [ "$DRY_RUN" = 1 ]; then
+      info "would remove stale link $target"
+    else
+      rm -f -- "$target"
+      ok "stale link removed: $target"
+    fi
+  elif [ -e "$target" ]; then
+    local backup="$target.bak-$(date +%Y%m%d-%H%M%S)"
+    while [ -e "$backup" ] || [ -L "$backup" ]; do
+      backup="$backup-$$"
     done
     if [ "$DRY_RUN" = 1 ]; then
-      info "would move existing config $TARGET -> $BACKUP"
+      info "would move existing $label $target -> $backup"
     else
-      mv -- "$TARGET" "$BACKUP"
-      ok "existing config backed up to $BACKUP"
+      mv -- "$target" "$backup"
+      ok "existing $label backed up to $backup"
     fi
   fi
 
-  PARENT="$(dirname -- "$TARGET")"
-  if [ ! -d "$PARENT" ]; then
+  local parent
+  parent="$(dirname -- "$target")"
+  if [ ! -d "$parent" ]; then
     if [ "$DRY_RUN" = 1 ]; then
-      info "would create $PARENT"
+      info "would create $parent"
     else
-      mkdir -p -- "$PARENT"
-      ok "created $PARENT"
+      mkdir -p -- "$parent"
+      ok "created $parent"
     fi
   fi
 
   if [ "$DRY_RUN" = 1 ]; then
-    info "would create symlink $TARGET -> $SOURCE"
+    info "would create symlink $target -> $source"
   else
-    ln -s -- "$SOURCE" "$TARGET"
-    ok "symlink created: $TARGET -> $SOURCE"
+    ln -s -- "$source" "$target"
+    ok "symlink created: $target -> $source"
   fi
-fi
+}
+
+link_config "$SOURCE_NVIM"  "$TARGET"       "nvim"
+link_config "$SOURCE_EMACS" "$EMACS_TARGET" "emacs"
 
 # --- plugins -----------------------------------------------------------------
 
@@ -214,6 +256,12 @@ if [ "$DRY_RUN" = 1 ]; then
   warn "dry run complete — re-run without --dry-run to apply"
 else
   ok "done — start nvim and wait for the first-run setup to finish"
-  info "config:  $TARGET"
+  info "nvim  : $TARGET"
   info "plugins: ${XDG_DATA_HOME:-$HOME/.local/share}/nvim (not versioned)"
+  info "emacs : $EMACS_TARGET"
+  if command -v emacs >/dev/null 2>&1; then
+    info "Emacs 不自动联网：进 Emacs 后跑一次 M-x my/bootstrap-packages 装依赖（见 emacs/README.md）。"
+  else
+    warn "emacs 不在 PATH 上；装好之后进 Emacs 跑一次 M-x my/bootstrap-packages 装依赖。"
+  fi
 fi

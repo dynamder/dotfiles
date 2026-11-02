@@ -1,4 +1,10 @@
 #Requires -Version 5.1
+#
+# NOTE: keep this file pure ASCII.
+# Windows PowerShell 5.1 decodes a BOM-less script using the ANSI codepage, so
+# non-ASCII text can swallow a closing quote and break parsing. A UTF-8 BOM
+# would also work, but any tool that rewrites the file may drop it, so ASCII is
+# the durable answer for an installer that has to run everywhere.
 <#
 .SYNOPSIS
     Bootstrap this dotfiles repository as the Neovim configuration.
@@ -40,7 +46,8 @@ param(
     [switch]$DryRun,
     [switch]$NoPlugins,
     [switch]$Update,
-    [string]$Target
+    [string]$Target,
+    [string]$EmacsTarget
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,9 +65,14 @@ if ($PSScriptRoot) {
     $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
-$source = Join-Path $repoRoot 'nvim'
-if (-not (Test-Path -LiteralPath (Join-Path $source 'init.lua'))) {
+$sourceNvim = Join-Path $repoRoot 'nvim'
+if (-not (Test-Path -LiteralPath (Join-Path $sourceNvim 'init.lua'))) {
     throw 'Could not find nvim/init.lua next to this script. Run install.ps1 from the root of the dotfiles repository.'
+}
+
+$sourceEmacs = Join-Path $repoRoot 'emacs'
+if (-not (Test-Path -LiteralPath (Join-Path $sourceEmacs 'init.el'))) {
+    throw 'Could not find emacs/init.el next to this script. Run install.ps1 from the root of the dotfiles repository.'
 }
 
 $onWindows = ($env:OS -eq 'Windows_NT')
@@ -81,14 +93,33 @@ if (-not $Target) {
 }
 $Target = [System.IO.Path]::GetFullPath($Target)
 
+# On Windows the Emacs config directory depends on the environment that
+# launches Emacs:
+#   HOME set   -> $HOME\.emacs.d        (inherited from Git Bash and friends)
+#   HOME unset -> %APPDATA%\.emacs.d    (Start menu / Explorer launch)
+# Emacs itself sets HOME to %APPDATA% when it is missing, so both can apply.
+# Rather than guessing how Emacs will be started, link both to this repo.
+if ($EmacsTarget) {
+    $emacsTargets = @([System.IO.Path]::GetFullPath($EmacsTarget))
+} else {
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $candidates += (Join-Path $env:APPDATA '.emacs.d')
+    }
+    $candidates += (Join-Path $HOME '.emacs.d')
+    $emacsTargets = @($candidates |
+        ForEach-Object { [System.IO.Path]::GetFullPath($_) } |
+        Select-Object -Unique)
+}
+
 # --- helpers -----------------------------------------------------------------
 
-# Normalise a path for comparison: strip the \??\ / \\?\ prefix that Windows
-# gives reparse points, resolve it, drop trailing separators, fold case.
+# Normalise a path for comparison: strip the Global\ / \??\ / \\?\ prefix that
+# Windows gives reparse points, resolve it, drop trailing separators, fold case.
 function Resolve-RealPath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
-    $clean = $Path -replace '^\\\?\?\\', '' -replace '^\\\?\\', ''
+    $clean = $Path -replace '^Global\\', '' -replace '^\\\?\?\\', '' -replace '^\\\?\\', ''
     try { $clean = (Resolve-Path -LiteralPath $clean -ErrorAction Stop).ProviderPath } catch { }
     return ([string]$clean).TrimEnd('\', '/').ToLowerInvariant()
 }
@@ -98,15 +129,35 @@ function Get-LinkTarget {
     if ($null -eq $Item) { return $null }
     if (-not ($Item.PSObject.Properties.Name -contains 'LinkType')) { return $null }
     if (-not $Item.LinkType) { return $null }
-    $targets = @($Item.Target) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    # @() must wrap the whole pipeline: with a single target the pipeline
+    # collapses to a string, and "D:\dir"[0] is the letter 'D', not a path.
+    $targets = @($Item.Target | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($targets.Count -eq 0) { return $null }
-    return [string]$targets[0]
+    # PowerShell 5.1 prefixes a junction's Target with the "Global\" namespace.
+    # Without stripping it the path never matches the repo, so the
+    # "already linked" check silently fails forever.
+    return ([string]$targets[0]) -replace '^Global\\', ''
+}
+
+# Backup names must be unique: two runs inside the same second would otherwise
+# collide and Move-Item would fail.
+function New-BackupName {
+    param([string]$Path)
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $name = "$Path.bak-$stamp"
+    $n = 0
+    while (Test-Path -LiteralPath $name) {
+        $n++
+        $name = "$Path.bak-$stamp-$n"
+    }
+    return $name
 }
 
 # --- banner ------------------------------------------------------------------
 
 Write-Step "dotfiles : $repoRoot"
 Write-Step "nvim dir : $Target"
+foreach ($t in $emacsTargets) { Write-Step "emacs dir: $t" }
 if ($DryRun) { Write-Warn 'dry run: nothing will be changed' }
 
 # --- optional git pull -------------------------------------------------------
@@ -120,9 +171,10 @@ if ($Update) {
             if ($DryRun) {
                 Write-Info 'skipped (dry run)'
             } else {
-                # nvim 的配置目录就是仓库里的 nvim/，lazy.nvim 会就地重写
-                # lazy-lock.json；本机插件版本与仓库锁定不一致就会弄脏工作树，
-                # ff-only pull 随即被拒绝。锁文件以仓库为准，拉取前丢弃本机漂移。
+                # nvim/ is the live config dir and lazy.nvim rewrites
+                # lazy-lock.json in place. Any local drift makes the worktree
+                # dirty and git pull --ff-only refuses it. The repo's lock wins,
+                # so drop local drift before pulling.
                 & git -C $repoRoot checkout -- nvim/lazy-lock.json 2>$null | Out-Null
                 & git -C $repoRoot pull --ff-only
                 if ($LASTEXITCODE -ne 0) { throw 'git pull failed; run `git -C <repo> status` and retry.' }
@@ -134,33 +186,47 @@ if ($Update) {
     }
 }
 
-# --- inspect what is already at the target -----------------------------------
+# --- link a config directory into place --------------------------------------
 
-$existing = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
-$linkTarget = Get-LinkTarget $existing
-$alreadyLinked = ($null -ne $linkTarget) -and
-                 ((Resolve-RealPath $linkTarget) -eq (Resolve-RealPath $source))
+function Install-Link {
+    param(
+        [string]$Source,
+        [string]$Target,
+        [string]$Label
+    )
 
-if ($alreadyLinked) {
-    Write-Ok "$Target already links to $source"
-} else {
+    $existing = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
+    $linkTarget = Get-LinkTarget $existing
+    $alreadyLinked = ($null -ne $linkTarget) -and
+                     ((Resolve-RealPath $linkTarget) -eq (Resolve-RealPath $Source))
+
+    if ($alreadyLinked) {
+        Write-Ok "$Label already links to $Source"
+        return
+    }
+
     if ($null -ne $existing) {
-        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         if ($existing.LinkType) {
-            $backup = "$Target.bak-$stamp"
+            # A link holds no content of its own, so backing it up is pointless
+            # and can fail when its target is gone. Just remove it:
+            # Directory.Delete drops the reparse point only.
             if ($DryRun) {
-                Write-Info "would move stale link $Target -> $backup"
+                Write-Info "would remove stale $Label $Target"
             } else {
-                Move-Item -LiteralPath $Target -Destination $backup
-                Write-Ok "stale link backed up to $backup"
+                try {
+                    [System.IO.Directory]::Delete($Target, $false)
+                } catch {
+                    Remove-Item -LiteralPath $Target -Force -ErrorAction Stop
+                }
+                Write-Ok "stale $Label removed: $Target"
             }
         } else {
-            $backup = "$Target.bak-$stamp"
+            $backup = New-BackupName $Target
             if ($DryRun) {
-                Write-Info "would move existing config $Target -> $backup"
+                Write-Info "would move existing $Label $Target -> $backup"
             } else {
                 Move-Item -LiteralPath $Target -Destination $backup
-                Write-Ok "existing config backed up to $backup"
+                Write-Ok "existing $Label backed up to $backup"
             }
         }
     }
@@ -175,17 +241,23 @@ if ($alreadyLinked) {
     }
 
     if ($DryRun) {
-        if ($onWindows) { Write-Info "would create junction $Target -> $source" }
-        else { Write-Info "would create symlink $Target -> $source" }
-    } else {
-        if ($onWindows) {
-            New-Item -ItemType Junction -Path $Target -Target $source | Out-Null
-            Write-Ok "junction created: $Target -> $source"
-        } else {
-            New-Item -ItemType SymbolicLink -Path $Target -Target $source | Out-Null
-            Write-Ok "symlink created: $Target -> $source"
-        }
+        if ($onWindows) { Write-Info "would create junction $Target -> $Source" }
+        else { Write-Info "would create symlink $Target -> $Source" }
+        return
     }
+
+    if ($onWindows) {
+        New-Item -ItemType Junction -Path $Target -Target $Source | Out-Null
+        Write-Ok "junction created: $Target -> $Source"
+    } else {
+        New-Item -ItemType SymbolicLink -Path $Target -Target $Source | Out-Null
+        Write-Ok "symlink created: $Target -> $Source"
+    }
+}
+
+Install-Link -Source $sourceNvim -Target $Target -Label 'nvim'
+foreach ($t in $emacsTargets) {
+    Install-Link -Source $sourceEmacs -Target $t -Label 'emacs'
 }
 
 # --- plugins -----------------------------------------------------------------
@@ -216,9 +288,9 @@ if ($NoPlugins) {
 if (-not $DryRun -and -not $NoPlugins -and (Test-Path -LiteralPath (Join-Path $repoRoot '.git'))) {
     $lockDirty = & git -C $repoRoot status --porcelain -- nvim/lazy-lock.json 2>$null
     if ($lockDirty) {
-        Write-Warn 'lazy-lock.json 与本机实际插件版本仍不一致（restore 没能完全对齐）'
-        Write-Info "以仓库为准: git -C `"$repoRoot`" checkout -- nvim/lazy-lock.json"
-        Write-Info '要固定本机版本: commit 后 push；否则下次 -Update 会丢弃这里的漂移'
+        Write-Warn 'lazy-lock.json still differs from the installed plugins (restore did not fully converge)'
+        Write-Info "Treat the repo as the source of truth: git -C `"$repoRoot`" checkout -- nvim/lazy-lock.json"
+        Write-Info 'To pin local versions: commit and push; otherwise the next -Update discards that drift'
     }
 }
 
@@ -236,6 +308,12 @@ if ($DryRun) {
         $dataDir = Join-Path $base 'nvim'
     }
     Write-Ok 'done. Start nvim and wait for the first-run setup to finish.'
-    Write-Info "config:  $Target"
+    Write-Info "nvim  : $Target"
     Write-Info "plugins: $dataDir (not versioned)"
+    foreach ($t in $emacsTargets) { Write-Info "emacs : $t" }
+    if ($null -ne (Get-Command emacs -ErrorAction SilentlyContinue)) {
+        Write-Info 'Emacs does not auto-install: run M-x my/bootstrap-packages once inside it.'
+    } else {
+        Write-Warn 'emacs is not on PATH; once installed, run M-x my/bootstrap-packages inside it.'
+    }
 }

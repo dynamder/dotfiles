@@ -5,3 +5,7 @@ desktop.ini
 
 # installer backups produced by install.sh / install.ps1
 nvim.bak-*
+emacs.bak-*
+
+# scratch dir used by tests/install-idempotency.ps1
+.install-test/
