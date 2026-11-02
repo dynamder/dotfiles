@@ -17,27 +17,65 @@
 ;;; 一、字体
 ;;; ---------------------------------------------------------------------------
 
-;; 这台机器上已装的字体（用 Windows 字体注册名，不是文件名）：
-;;   JetBrainsMono NF    等宽，带 Nerd 图标，doom-modeline 靠它
-;;   Noto Serif SC       中文衬线，长文阅读比黑体舒服
-;;   Noto Sans SC        中文黑体，想换无衬线就改下面一行
-(defvar my/latin-font "JetBrainsMono NF")
-(defvar my/cjk-font "Noto Serif SC")
+;; 字体名在 Windows 和 Linux 上并不相同：同一个 Nerd Font 在 Windows 注册成
+;; "JetBrainsMono NF"，在 Arch 上是 "JetBrainsMono Nerd Font"；中文字体在
+;; Windows 叫 "Noto Serif SC"，Arch 的 noto-fonts-cjk 提供的是
+;; "Noto Serif CJK SC"。名字对不上时 Emacs **不报错**，直接用回退字体，
+;; 所以这里按候选列表取第一个真正装了的。
+(defvar my/latin-font "JetBrainsMono NF"
+  "首选的等宽字体。装了这个就用它。")
+
+(defvar my/cjk-font "Noto Serif SC"
+  "首选的中文字体。想换无衬线就改成 Noto Sans SC。")
+
+(defvar my/latin-font-fallbacks
+  '("JetBrainsMono NF"          ; Windows 注册名
+    "JetBrainsMono Nerd Font"   ; Nerd Fonts 原版（Arch / macOS）
+    "JetBrains Mono"            ; 未打补丁的版本，没有 Nerd 图标
+    "monospace")
+  "首选的字体不可用时依次尝试。")
+
+(defvar my/cjk-font-fallbacks
+  '("Noto Serif SC"             ; Windows 注册名
+    "Noto Serif CJK SC"         ; Arch 的 noto-fonts-cjk
+    "Source Han Serif SC"
+    "Sarasa Term SC"            ; 更纱黑体，等宽场景更整齐
+    "serif")
+  "同上，中文侧的候选。")
 
 ;; 单位是 1/10 pt。中文字号比拉丁大一档，视觉上才一样大。
 (defvar my/latin-size 110)
 (defvar my/cjk-size 125)
 
+(defun my/first-available-font (families)
+  "返回 FAMILIES 中第一个本机装了的字体名。
+一个都查不到时返回 nil（比如 batch 模式下枚举不到字体）。"
+  (seq-find (lambda (family)
+              (and family (find-font (font-spec :family family))))
+            families))
+
 (defun my/apply-fonts ()
   "把字体设置应用到默认脸面。
 改完 my/latin-font / my/cjk-font 之后 C-x C-e 求值本函数即可生效。"
-  (set-face-attribute 'default nil :family my/latin-font :height my/latin-size)
-  (set-face-attribute 'fixed-pitch nil :family my/latin-font :height my/latin-size)
-  (set-face-attribute 'variable-pitch nil :family my/cjk-font :height my/cjk-size)
-  ;; 等宽字体里没有汉字，需要给 han 这个 charset 单独指定回退字体。
-  (set-fontset-font t 'han (font-spec :family my/cjk-font :size (/ my/cjk-size 10.0))))
+  (interactive)
+  (let* ((latin (or (my/first-available-font
+                     (cons my/latin-font my/latin-font-fallbacks))
+                    my/latin-font))
+         (cjk (or (my/first-available-font
+                   (cons my/cjk-font my/cjk-font-fallbacks))
+                  my/cjk-font)))
+    (set-face-attribute 'default nil :family latin :height my/latin-size)
+    (set-face-attribute 'fixed-pitch nil :family latin :height my/latin-size)
+    (set-face-attribute 'variable-pitch nil :family cjk :height my/cjk-size)
+    ;; 等宽字体里没有汉字，需要给 han 这个 charset 单独指定回退字体。
+    (set-fontset-font t 'han (font-spec :family cjk :size (/ my/cjk-size 10.0)))
+    (when (called-interactively-p 'any)
+      (message "fonts: %s / %s" latin cjk))))
 
 (my/apply-fonts)
+;; 首帧建好之前字体列表未必枚举得到（batch、daemon、以及某些 GUI 启动路径），
+;; 帧就绪后再应用一次，保证候选列表真的被查过。
+(add-hook 'window-setup-hook #'my/apply-fonts)
 
 ;; Windows 上字体缓存不压缩的话，切字体和启动会明显卡顿。
 (setq inhibit-compacting-font-caches t)

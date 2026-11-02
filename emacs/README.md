@@ -156,6 +156,43 @@ Using cached index (6772 packages). C-u to force a refresh.
 上次每个归档实际可用的地址会写进 `my-archive-cache.el`（已在 gitignore 里），
 下次先试它——所以「官方不通、每次都要等一个探测超时」只发生在第一次。
 
+## 跨平台
+
+同一份配置在 Windows 和 Linux（CachyOS / Arch 系）上跑。平台差异只有下面几处，
+其余代码里没有 `system-type` 判断。
+
+### 系统依赖
+
+Arch 系一条命令：
+
+```bash
+sudo pacman -S --needed git base-devel rust rustfmt rust-analyzer zls \
+    ttf-jetbrains-mono-nerd noto-fonts-cjk
+```
+
+| 用途 | 包 | 说明 |
+| --- | --- | --- |
+| 编译语法库 | `base-devel`（gcc） | treesit 直接调 `cc`，Linux 不需要包装脚本 |
+| Rust 补全 | `rust-analyzer` | 用 rustup 的话：`rustup component add rust-analyzer rustfmt` |
+| Zig 补全 | `zls` | 大版本要跟 zig 对得上 |
+| 字体 | `ttf-jetbrains-mono-nerd`、`noto-fonts-cjk` | 名字见「字体」一节 |
+
+装完用 `M-: (treesit-available-p)` 确认这个 Emacs 编进了 tree-sitter
+（Arch 官方包默认启用）。返回 `nil` 就先换包，否则后面全都白搭。
+
+### 和 Windows 的差异
+
+| 项 | Windows | Linux / macOS |
+| --- | --- | --- |
+| 语法库编译器 | `bin/cc.bat` 包装 `zig cc` | 直接调系统 `cc`；`my/treesit-cc-program` 为 nil |
+| 装语法库 | `M-x my/install-treesit-grammars` | 同左，一条命令 |
+| 字体名 | `JetBrainsMono NF` / `Noto Serif SC` | `JetBrainsMono Nerd Font` / `Noto Serif CJK SC`，自动挑 |
+| CA 证书 | 探测 Git for Windows 的 bundle | 系统 `/etc/ssl/certs` 直接可用，那段逻辑不触发 |
+| 代理 | 读注册表 | `my/use-proxy` 默认 nil，不涉及 |
+
+`bin/*.bat` 在 Linux 上不参与任何流程。`.gitattributes` 固定它们的 CRLF，
+只是为了让 Windows 上 checkout 回来还能跑。
+
 ## 键位速查
 
 默认是**原生 Emacs 键位**，没有 evil。理由：不打模式，中文输入不需要换来换去。
@@ -241,13 +278,21 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 `lisp/my-ui.el` 顶部四个变量：
 
 ```elisp
-(defvar my/latin-font "JetBrainsMono NF")
+(defvar my/latin-font "JetBrainsMono NF")      ; 首选名
 (defvar my/cjk-font "Noto Serif SC")
+(defvar my/latin-font-fallbacks '("JetBrainsMono Nerd Font" ...))
+(defvar my/cjk-font-fallbacks   '("Noto Serif CJK SC" ...))
 (defvar my/latin-size 110)
 (defvar my/cjk-size 125)
 ```
 
-改完 `C-x C-e` 求值 `(my/apply-fonts)` 立刻生效。
+字体名在 Windows 和 Linux 上不一样，而**名字对不上时 Emacs 不报错、直接用回退
+字体**——所以 `my/apply-fonts` 会用 `find-font` 在候选列表里挑第一个真正装了的，
+换机器不用改这里。改完 `C-x C-e` 求值 `(my/apply-fonts)` 立刻生效（它现在是
+interactive 的，`M-x my/apply-fonts` 也行）。
+
+首帧建好之前字体列表未必枚举得到（batch、daemon、某些 GUI 启动路径），所以
+`window-setup-hook` 里还会再应用一次。
 
 - 中文比拉丁字号大一档（11pt / 12.5pt），是为了让两种字的**视觉大小**对齐；
   同样的 pt 下汉字会显得偏小。

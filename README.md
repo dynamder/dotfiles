@@ -113,10 +113,13 @@ powershell -ExecutionPolicy Bypass -File .\tests\install-idempotency.ps1
 
 - 主题是自己按[官方色板](https://rosepinetheme.com/palette/)写的 `rose-pine`，三个变体，`C-c t` 切换
 - 补全用 vertico + orderless + marginalia + consult
-- 字体：`JetBrainsMono NF`（等宽 + Nerd 图标）+ `Noto Serif SC`（中文正文）
+- 字体：`JetBrainsMono NF` / `Noto Serif SC`（Windows 名），Linux 上自动换成
+  `JetBrainsMono Nerd Font` / `Noto Serif CJK SC`
 - Markdown：软换行、比例字体、居中窄栏、CJK 表格对齐
 - Rust / Zig：tree-sitter 高亮 + eglot（rust-analyzer / zls）+ 保存时 rustfmt / zig fmt
 - 语法库要单独编译：装好依赖后跑一次 `M-x my/install-treesit-grammars`
+- Windows 与 Linux（CachyOS / Arch）共用一套配置，系统依赖见
+  [emacs/README.md](emacs/README.md) 的「跨平台」一节
 
 细节、键位速查和排错见 [emacs/README.md](emacs/README.md)。
 

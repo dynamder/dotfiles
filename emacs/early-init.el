@@ -33,6 +33,12 @@
 (push '(bottom-divider-width . 1) default-frame-alist)
 
 ;; 等宽字体在帧创建时就定下来。具体的中文字号在 lisp/my-ui.el 里补。
-(add-to-list 'default-frame-alist '(font . "JetBrainsMono NF-11"))
+;; 这里只管首帧，所以按平台给名字：同一个 Nerd Font 在 Windows 注册成
+;; "JetBrainsMono NF"，在 Arch 上是 "JetBrainsMono Nerd Font"。真正的候选
+;; 探测和中文回退都在 my-ui.el 里。
+(add-to-list 'default-frame-alist
+             (cons 'font (if (eq system-type 'windows-nt)
+                             "JetBrainsMono NF-11"
+                           "JetBrainsMono Nerd Font-11")))
 
 ;;; early-init.el ends here
