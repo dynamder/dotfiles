@@ -303,18 +303,18 @@
 ;;; 实现
 ;;; ---------------------------------------------------------------------------
 
-(defun rose-pine--resolve (palette attrs)
-  "把 ATTRS 里的调色板符号替换成 PALETTE 中的色值。"
-  (let (out)
-    (while attrs
-      (let ((key (pop attrs))
-            (val (pop attrs)))
-        (push key out)
-        (push (if (and (symbolp val) (assq val palette))
-                  (cdr (assq val palette))
-                val)
-              out)))
-    (nreverse out)))
+(defun rose-pine--resolve (palette value)
+  "把 VALUE 里的调色板符号递归替换成 PALETTE 中的色值。
+
+必须递归：`:underline (:style wave :color love)` 这种属性的值是**嵌套的
+plist**，只替换顶层的话 `love` 会原样留下，Emacs 就会报
+`Invalid face underline: :style, wave, :color, love`。"
+  (cond
+   ((and (symbolp value) (assq value palette))
+    (cdr (assq value palette)))
+   ((consp value)
+    (mapcar (lambda (v) (rose-pine--resolve palette v)) value))
+   (t value)))
 
 (defun rose-pine--apply (theme palette specs)
   "给 THEME 应用 SPECS。

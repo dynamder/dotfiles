@@ -29,5 +29,8 @@
 # Customize 界面写出来的设置
 /custom.el
 
+# 归档地址缓存（每次 bootstrap 自动生成）
+/my-archive-cache.el
+
 # 字节码
 *.elc

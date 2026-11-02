@@ -112,6 +112,19 @@ melpa  → melpa.org     → ustc → tuna
 想固定用官方、彻底禁掉镜像：把 `my-packages.el` 里 `my/archive-sources`
 每一项后面的两行删掉即可。探测本身也是开关：`my/probe-before-download`。
 
+### 只装缺的包，不重复下载索引
+
+`M-x my/bootstrap-packages` 发现本地已有索引时**不会再刷新**（索引在
+`elpa/archives/` 里，几 MB，每次重下没必要），直接装缺的包：
+
+```
+Using cached index (6772 packages). C-u to force a refresh.
+```
+
+要强制重下索引就用 `C-u M-x my/bootstrap-packages`。
+上次每个归档实际可用的地址会写进 `my-archive-cache.el`（已在 gitignore 里），
+下次先试它——所以「官方不通、每次都要等一个探测超时」只发生在第一次。
+
 ## 键位速查
 
 默认是**原生 Emacs 键位**，没有 evil。理由：不打模式，中文输入不需要换来换去。

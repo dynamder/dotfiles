@@ -222,8 +222,11 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
 ;;; 四、探测与下载（都在子进程里）
 ;;; ---------------------------------------------------------------------------
 
-(defvar my/probe-timeout 8
-  "单次探测最多等几秒。")
+(defvar my/probe-timeout 5
+  "单次探测最多等几秒。到点 kill 子进程。
+
+值越小，遇到不通的源时切换越快；但太短会把「慢但能用」的源误判成 timeout。
+官方源在国内经常整段不通，所以没取太大。")
 
 (defvar my/download-timeout 60
   "单个归档下载最多等几秒。MELPA 的 archive-contents 有一两 MB。")
@@ -292,21 +295,56 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
             ((file-exists-p file) 'ok)
             (t 'fail)))))
 
+(defvar my/archive-cache-file
+  (expand-file-name "my-archive-cache.el" user-emacs-directory)
+  "记录上一次每个归档实际可用的地址。
+
+作用很直接：官方不通时要先等一个探测超时才换镜像，每次启动都重来一遍
+很烦。记住上次的结果，下次直接先试它。")
+
+(defun my/load-archive-cache ()
+  "读缓存，返回 ((归档 . 地址) ...)。读不到就返回 nil。"
+  (when (file-exists-p my/archive-cache-file)
+    (condition-case nil
+        (with-temp-buffer
+          (insert-file-contents my/archive-cache-file)
+          (goto-char (point-min))
+          (read (current-buffer)))
+      (error nil))))
+
+(defun my/save-archive-cache (chosen)
+  "把本次选中的地址写盘，下次优先用。"
+  (ignore-errors
+    (with-temp-file my/archive-cache-file
+      (insert ";; 由 my-packages.el 自动生成：上次可用的归档地址。\n")
+      (prin1 chosen (current-buffer))
+      (insert "\n"))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; 五、失败切换刷新
 ;;; ---------------------------------------------------------------------------
 
 (defun my/refresh-with-failover ()
   "逐个归档刷新索引，每个归档按候选地址依次切换。
-返回非 nil 表示至少有一个归档成功。"
+返回非 nil 表示至少有一个归档成功。
+
+上次成功的地址会被优先尝试（见 `my/archive-cache-file'），
+所以「官方不通、每次都要等超时」只发生在第一次。"
   (my/apply-proxy)
   (message "Refreshing package index (proxy: %s)..." (or my/proxy "direct"))
-  (let (chosen failed)
+  (let ((cache (my/load-archive-cache))
+        chosen failed)
     (dolist (entry my/archive-sources)
       (let* ((name (car entry))
+             (cached (cdr (assq name cache)))
+             ;; 缓存的地址排到最前，其余保持原顺序
+             (candidates (if (and cached (member cached (cdr entry)))
+                             (cons cached (remove cached (cdr entry)))
+                           (cdr entry)))
              (deferred nil)
              (url (catch 'found
-                    (dolist (candidate (cdr entry))
+                    (dolist (candidate candidates)
+                      (message "  %s: probing %s" name candidate)
                       (let ((verdict (if my/probe-before-download
                                          (my/probe-url candidate)
                                        'ok)))
@@ -335,7 +373,9 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
           (push name failed)
           (message "  %s -> no candidate worked" name))))
     (when chosen
-      (setq package-archives (nreverse chosen))
+      (setq chosen (nreverse chosen))
+      (setq package-archives chosen)
+      (my/save-archive-cache chosen)
       (when (fboundp 'package-read-all-archive-contents)
         (package-read-all-archive-contents)))
     (when failed
@@ -363,17 +403,26 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
 ;;; 七、命令
 ;;; ---------------------------------------------------------------------------
 
-(defun my/bootstrap-packages ()
-  "刷新索引并安装 `my/packages' 里缺的包。装完重启 Emacs。"
-  (interactive)
+(defun my/bootstrap-packages (&optional force)
+  "安装 `my/packages' 里缺的包；索引已在本地时不再重新下载。
+
+前缀参数（C-u）或 FORCE 非 nil 时强制刷新索引。
+装完重启 Emacs。"
+  (interactive "P")
   (unless (or noninteractive
               (y-or-n-p (format "Install %d packages? " (length my/packages))))
     (user-error "Cancelled"))
-  (message "%d archives x %d candidates, probe %ss, download %ss"
-           (length my/archive-sources)
-           (apply #'max (mapcar (lambda (e) (length (cdr e))) my/archive-sources))
-           my/probe-timeout my/download-timeout)
-  (let ((ok (my/refresh-with-failover)))
+  (let ((ok (if (and (not force) package-archive-contents)
+                (progn
+                  (message "Using cached index (%d packages). C-u to force a refresh."
+                           (length package-archive-contents))
+                  'cached)
+              (message "%d archives x %d candidates, probe %ss, download %ss"
+                       (length my/archive-sources)
+                       (apply #'max (mapcar (lambda (e) (length (cdr e)))
+                                            my/archive-sources))
+                       my/probe-timeout my/download-timeout)
+              (my/refresh-with-failover))))
     ;; 走代理全挂就退回直连再试一轮：有些代理规则会拦掉特定域名。
     (when (and (null ok) my/proxy)
       (message "Failed through proxy %s; retrying direct..." my/proxy)
