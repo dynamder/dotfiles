@@ -83,10 +83,29 @@ melpa  → melpa.org     → ustc → tuna
 选中的地址写回 `package-archives`，后面的 `package-install` 也从它下载。
 所以正常网络下完全走官方，不会碰镜像。
 
-**代理**：每次启动从 Windows 注册表读系统代理（`ProxyEnable` / `ProxyServer`），
-端口是动态的——代理客户端换端口（7897 → 7900）会自动跟上，不需要改配置。
-探测和下载的子进程也带着同一份代理设置，保证「探测结论」和「真实下载」同路。
-如果走代理全挂，`my/bootstrap-packages` 会自动**退回直连再试一轮**。
+### Windows 上必须配 CA 证书
+
+`gnutls-trustfiles` 在 Windows 上默认是一串 `/etc/ssl/...` 的 Unix 路径，
+**一个都不存在**。后果是所有 HTTPS 握手都以 `connection-failed "deleted"`
+结束，`M-x my/diagnose-network` 会显示满屏 0.2 秒的 `fail`——看起来像网络
+被封，其实是证书库没配上。
+
+`my/ensure-ca-bundle` 会在启动时检查：如果默认路径全都不存在，就换成本机
+真实存在的那个（优先 Git for Windows 自带的 `ca-bundle.crt`）。子进程也会
+带上同一份设置，否则它用 `-Q` 启动、读不到这个变量，会退回失败的默认值。
+
+### 代理默认关闭
+
+```elisp
+(setq my/use-proxy nil)        ; 默认值
+(setq my/proxy-override "127.0.0.1:7897")   ; 需要时手动指定
+```
+
+实测这台机器上 Emacs 走本地代理（`127.0.0.1:7897`）会拿到 **HTTP 400**
+——代理不接受 Emacs 发的请求；而直连配合正确的 CA 是 **200**。
+所以默认直连。要开代理就 `(setq my/use-proxy t)`，端口从注册表动态读
+（`ProxyEnable` / `ProxyServer`，代理换端口会自动跟上）；走代理全挂时
+`my/bootstrap-packages` 会自动退回直连再试一轮。
 
 想看当前每个归档用了哪个地址：`M-x my/packages-status`。
 想看每个候选地址的探测结果和耗时：`M-x my/diagnose-network`。

@@ -23,6 +23,34 @@
 ;;; Code:
 
 (require 'package)
+(require 'gnutls)
+
+;;; ---------------------------------------------------------------------------
+;;; 零、CA 证书包：Emacs 在 Windows 上默认找不到它
+;;; ---------------------------------------------------------------------------
+
+(defvar my/ca-bundles
+  '("C:/Program Files/Git/mingw64/etc/ssl/certs/ca-bundle.crt"
+    "C:/Program Files/Git/usr/ssl/certs/ca-bundle.crt"
+    "C:/Program Files/Git/mingw64/ssl/certs/ca-bundle.crt"
+    "C:/Program Files/Git/mingw64/libexec/ssl/certs/ca-bundle.crt"
+    "C:/ProgramData/chocolatey/lib/git.install/tools/mingw64/etc/ssl/certs/ca-bundle.crt")
+  "候选 CA 证书包。只在 Emacs 自带的那批路径全都不存在时才启用。
+
+Windows 上 `gnutls-trustfiles' 默认是一串 `/etc/ssl/...' 的 Unix 路径，
+一个都不存在，于是所有 HTTPS 握手都以 connection-failed 结束——表现为
+「所有源都 fail」，看起来像网络问题，其实是证书库没配上。")
+
+(defun my/ensure-ca-bundle ()
+  "如果 Emacs 默认的 CA 路径都不存在，就换成本机真实存在的那个。
+返回最终使用的文件，找不到则 nil。"
+  (if (seq-some #'file-exists-p gnutls-trustfiles)
+      (seq-find #'file-exists-p gnutls-trustfiles)
+    (let ((found (seq-find #'file-exists-p (mapcar #'expand-file-name my/ca-bundles))))
+      (when found (setq gnutls-trustfiles (list found)))
+      found)))
+
+(my/ensure-ca-bundle)
 
 ;;; ---------------------------------------------------------------------------
 ;;; 一、包源
@@ -52,8 +80,12 @@
 ;;; 二、代理：惰性检测，端口不写死
 ;;; ---------------------------------------------------------------------------
 
-(defvar my/use-proxy t
-  "非 nil 时使用系统代理。设为 nil 一律直连。")
+(defvar my/use-proxy nil
+  "非 nil 时使用系统代理。默认直连。
+
+为什么默认关：实测这台机器上 Emacs 走本地代理会得到 HTTP 400
+（代理不接受 Emacs 发的请求），而直连配合正确的 CA 证书包是 200。
+要用代理就把它设 t，或用 `my/proxy-override' 指定。")
 
 (defvar my/proxy-override nil
   "手动指定 \"host:port\"，优先于系统设置。")
@@ -155,16 +187,36 @@
     (or (seq-find (lambda (p) (and p (file-executable-p p))) cands)
         (executable-find "emacs"))))
 
+(defun my/child-prelude ()
+  "子进程需要的最小前置设置。
+
+子进程是 `-Q' 启动的，不读任何配置，所以 CA 证书必须显式传进去，
+否则它会用 Emacs 默认那堆不存在的 Unix 路径，握手再次失败。"
+  (concat "(require 'gnutls)"
+          (when (and gnutls-trustfiles (seq-some #'file-exists-p gnutls-trustfiles))
+            (format "(setq gnutls-trustfiles '%S)" gnutls-trustfiles))))
+
 (defun my/child-status (form timeout)
-  "在无配置的子 Emacs 里求值 FORM，最多等 TIMEOUT 秒。
-返回 `ok' / `fail' / `timeout'。子进程被 kill 时判 `timeout'。"
-  (let ((emacs (my/emacs-binary)))
-    (if (null emacs)
+  "在无配置的子 Emacs 里执行 FORM，最多等 TIMEOUT 秒。
+返回 `ok' / `fail' / `timeout'。子进程被 kill 时判 `timeout'。
+
+FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
+实测 `(require 'url)' 之后放在 `--eval' 里的后续 form 会被静默丢弃，
+子进程直接退出 0，什么都不写——这个坑很隐蔽。改用 `-l' 一切正常，
+顺带也不用操心命令行引号转义。"
+  (let ((script (condition-case nil (make-temp-file "my-child-" nil ".el") (error nil))))
+    (if (null script)
         'fail
-      (pcase (car (my/run-bounded emacs (list "-Q" "--batch" "--eval" form) timeout))
-        ('timeout 'timeout)
-        (0 'ok)
-        (_ 'fail)))))
+      (unwind-protect
+          (progn
+            (with-temp-file script (insert form))
+            (pcase (car (my/run-bounded (my/emacs-binary)
+                                        (list "-Q" "--batch" "-l" script)
+                                        timeout))
+              ('timeout 'timeout)
+              (0 'ok)
+              (_ 'fail)))
+        (ignore-errors (delete-file script))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; 四、探测与下载（都在子进程里）
@@ -189,7 +241,8 @@
         'fail
       (unwind-protect
           (let ((form (format
-                       (concat "(require 'url)"
+                       (concat (my/child-prelude)
+                               "(require 'url)"
                                "(let* ((url-proxy-services '%S)"
                                "       (r (condition-case nil"
                                "              (url-retrieve-synchronously %S t t %d)"
@@ -198,7 +251,7 @@
                                "    (insert (cond ((eq r 'timeout) \"timeout\")"
                                "                  ((and (bufferp r) (buffer-live-p r)"
                                "                        (with-current-buffer r"
-                               "                          (eql url-http-response-status 200)))"
+                               "                          (memq url-http-response-status '(200 404))))"
                                "                   \"ok\")"
                                "                  (t \"fail\")))))")
                        url-proxy-services
@@ -228,7 +281,8 @@
     (ignore-errors (delete-file file))
     (let ((status (my/child-status
                    (format
-                    (concat "(require 'package)"
+                    (concat (my/child-prelude)
+                            "(require 'package)"
                             "(setq package-user-dir %S"
                             "      package-archives '((%S . %S)))"
                             "(condition-case nil (package-refresh-contents) (error nil))")
