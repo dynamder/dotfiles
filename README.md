@@ -1,8 +1,8 @@
 # dotfiles
 
-我的个人配置仓库，目前是 Neovim（基于 [LazyVim](https://github.com/LazyVim/LazyVim)）。
+我的个人配置仓库：**Neovim（基于 [LazyVim](https://github.com/LazyVim/LazyVim)）写代码，Emacs 写中文文档**。
 
-配置通过**软链接**（Windows 上是目录联接 junction）挂到 Neovim 的配置目录，所以仓库里的改动会立刻生效，多台设备之间用 git 同步。
+两套配置都通过**软链接**（Windows 上是目录联接 junction）挂到各自的配置目录，所以仓库里的改动会立刻生效，多台设备之间用 git 同步。
 
 ## 目录结构
 
@@ -11,25 +11,43 @@ dotfiles/
 ├── install.ps1          # Windows 安装脚本（PowerShell）
 ├── install.sh           # Linux / macOS / WSL / Git Bash 安装脚本
 ├── LICENSE
-└── nvim/                # 真正的 nvim 配置，会被链接到配置目录
-    ├── init.lua
-    ├── lazy-lock.json   # 插件版本锁定，跟着仓库走
-    ├── lazyvim.json     # 已启用的 LazyVim extras
-    ├── .neoconf.json
-    ├── stylua.toml
-    └── lua/
-        ├── config/      # options / keymaps / autocmds / lazy
-        └── plugins/     # 自定义插件与主题
+├── tests/
+│   └── install-idempotency.ps1   # 安装脚本的幂等性回归测试
+├── nvim/                # 真正的 nvim 配置，会被链接到 %LOCALAPPDATA%\nvim
+│   ├── init.lua
+│   ├── lazy-lock.json   # 插件版本锁定，跟着仓库走
+│   ├── lazyvim.json     # 已启用的 LazyVim extras
+│   ├── .neoconf.json
+│   ├── stylua.toml
+│   └── lua/
+│       ├── config/      # options / keymaps / autocmds / lazy
+│       └── plugins/     # 自定义插件与主题
+└── emacs/               # 真正的 Emacs 配置，会被链接到 ~/.emacs.d
+    ├── early-init.el    # 帧创建前：关 chrome、定字体
+    ├── init.el          # 入口，只做装配
+    ├── lisp/            # packages / ui / completion / markdown
+    └── themes/          # 自己写的 rose-pine（main / moon / dawn）
 ```
 
 ## 安装
 
 脚本会自己找配置目录，**不写死任何用户路径**：
 
-| 系统 | 配置目录 |
-| --- | --- |
-| Windows | `%LOCALAPPDATA%\nvim` |
-| Linux / macOS | `$XDG_CONFIG_HOME/nvim`（默认 `~/.config/nvim`） |
+| 系统 | nvim 配置目录 | emacs 配置目录 |
+| --- | --- | --- |
+| Windows | `%LOCALAPPDATA%\nvim` | `%APPDATA%\.emacs.d` **和** `~/.emacs.d`（两个都链） |
+| Linux / macOS | `$XDG_CONFIG_HOME/nvim`（默认 `~/.config/nvim`） | `~/.emacs.d` |
+
+### Windows 上为什么链两个位置
+
+Emacs 在 Windows 上按**启动时的环境**决定去哪找配置：
+
+- 环境里有 `HOME` → 用 `$HOME\.emacs.d`（从 Git Bash 一类终端启动时会继承）
+- 没有 `HOME` → Emacs 自己把 `HOME` 设成 `%APPDATA%`，即 `%APPDATA%\.emacs.d`（从开始菜单 / 资源管理器启动）
+
+`HOME` 不是 Windows 默认环境变量，所以同一个 Emacs 换个方式启动就可能读另一个目录。安装脚本不猜，**两处都链到同一个仓库**，怎么启动都对。
+
+Linux / macOS 上 `HOME` 一定存在，只链 `~/.emacs.d`。这里不用 `~/.config/emacs`：Emacs 的判定是「`~/.emacs.d` 存在就用它，否则 `$XDG_CONFIG_HOME/emacs`，都没有再回落到 `~/.emacs.d`」，统一用前者三平台一致。
 
 ### Windows（PowerShell）
 
@@ -49,6 +67,8 @@ cd ~/dotfiles
 
 首次进入 nvim 会下载 LazyVim 和插件，等它跑完即可。
 
+Emacs 不自动联网：启动只读本地缓存，装依赖是显式动作。装完之后在 Emacs 里跑一次 `M-x my/bootstrap-packages`（或命令行 `emacs --batch -l ~/.emacs.d/init.el --eval "(my/bootstrap-packages)"`），再重启。某个源不通会自动换镜像，官方源优先。详见 [emacs/README.md](emacs/README.md)。
+
 > `install.sh` 只面向 Linux / macOS / WSL（POSIX 环境）。Windows 请用 `install.ps1`，两者逻辑一致，只是链接方式不同。
 
 ### 先看看会做什么
@@ -62,13 +82,44 @@ cd ~/dotfiles
 
 | PowerShell | bash | 作用 |
 | --- | --- | --- |
-| `-NoPlugins` | `--no-plugins` | 只建立链接，不装插件 |
+| `-NoPlugins` | `--no-plugins` | 只建立链接，不装 nvim 插件 |
 | `-Update` | `--update` | 先 `git pull --ff-only` 再链接（第二台机器用） |
-| `-Target DIR` | `--target DIR` | 指定配置目录（测试用） |
+| `-Target DIR` | `--target DIR` | 指定 nvim 配置目录（测试用） |
+| `-EmacsTarget DIR` | `--emacs-target DIR` | 指定 emacs 配置目录（测试用） |
+
+### 验证脚本的幂等性
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\install-idempotency.ps1
+```
+
+在 `<repo>\.install-test` 里跑 6 个场景、27 项检查，全程用 `-Target` / `-EmacsTarget` 指向临时目录，**不碰真实配置**：
+
+| 场景 | 期望 |
+| --- | --- |
+| 全新安装，连跑两次 | 第二次只打印 already links，不产生任何备份 |
+| 目标已是真实目录 | 备份一次、内容完好；再跑不多出备份 |
+| 目标是指向别处的链接 | 直接改指仓库；链接不备份；原目标目录不被删 |
+| 目标是坏链接 | 自动修复；再跑无动作 |
+| dry-run | 不建链接、不备份、不改真实目录 |
+| 同一秒内连跑两次 | 备份名不撞车 |
+
+> `install.ps1` **必须保持纯 ASCII**。Windows PowerShell 5.1 对没有 BOM 的脚本按 ANSI 代码页解码，中文可能吃掉收尾引号导致解析失败；加 UTF-8 BOM 也能解决，但任何重写文件的工具都可能把它丢掉，所以纯 ASCII 才是能长期维持的答案。`install.sh` 由 bash 解析，无此限制。
+
+## Emacs 配置
+
+只做一件事：**写中文 Markdown 写得舒服**。不装 LSP、不装 git 客户端，代码仍然交给 nvim。
+
+- 主题是自己按[官方色板](https://rosepinetheme.com/palette/)写的 `rose-pine`，三个变体，`C-c t` 切换
+- 补全用 vertico + orderless + marginalia + consult
+- 字体：`JetBrainsMono NF`（等宽 + Nerd 图标）+ `Noto Serif SC`（中文正文）
+- Markdown：软换行、比例字体、居中窄栏、CJK 表格对齐
+
+细节、键位速查和排错见 [emacs/README.md](emacs/README.md)。
 
 ## 安全说明
 
-- 原来的配置**不会丢**：会被重命名为 `nvim.bak-<时间戳>`。
+- 原来的配置**不会丢**：会被重命名为 `nvim.bak-<时间戳>` / `emacs.bak-<时间戳>`。
 - Windows 用的是目录联接（junction），不需要开启开发者模式或管理员权限。
 - 重复运行是幂等的：已经链接正确时会跳过。
 
@@ -84,7 +135,9 @@ nvim --headless "+Lazy! restore" +qa   # 按 lazy-lock.json 对齐插件版本
 
 也可以一条命令：`./install.sh --update`（PowerShell 用 `.\install.ps1 -Update`）。
 
-插件本体装在 Neovim 的 data 目录里（Windows：`%LOCALAPPDATA%\nvim-data`），**不进仓库**。仓库里只跟 `lazy-lock.json`，保证各设备版本一致。
+nvim 插件本体装在 Neovim 的 data 目录里（Windows：`%LOCALAPPDATA%\nvim-data`），**不进仓库**。仓库里只跟 `lazy-lock.json`，保证各设备版本一致。
+
+Emacs 的包由 `package.el` 管，装在 `~/.emacs.d/elpa/`（已被 `emacs/.gitignore` 排除），**同样不进仓库**。换机器时第一次启动会按 `init.el` 里的声明重新下载。
 
 ### 锁文件为什么会挡住 pull
 
@@ -98,28 +151,34 @@ nvim --headless "+Lazy! restore" +qa   # 按 lazy-lock.json 对齐插件版本
 
 ## 回滚
 
-```bash
-# bash
-rm ~/.config/nvim
-mv ~/.config/nvim.bak-20250101-120000 ~/.config/nvim
-```
-
 ```powershell
 # PowerShell
 Remove-Item "$env:LOCALAPPDATA\nvim"          # 只删链接，不动仓库
 Move-Item "$env:LOCALAPPDATA\nvim.bak-20250101-120000" "$env:LOCALAPPDATA\nvim"
+Remove-Item "$HOME\.emacs.d"
+Move-Item "$HOME\.emacs.d.bak-20250101-120000" "$HOME\.emacs.d"
+```
+
+```bash
+# bash
+rm ~/.config/nvim
+mv ~/.config/nvim.bak-20250101-120000 ~/.config/nvim
+rm ~/.emacs.d
+mv ~/.emacs.d.bak-20250101-120000 ~/.emacs.d
 ```
 
 ## 以后加别的配置
 
-在仓库根目录新建同级目录（比如 `wezterm/`、`git/`），照 `nvim/` 的方式在脚本里加一段即可。目前脚本只处理 `nvim/`。
+在仓库根目录新建同级目录（比如 `wezterm/`、`git/`），在脚本里多加一次 `link_config`（bash）或 `Install-Link`（PowerShell）调用即可。
 
 ## 依赖
 
 - **git**
 - **Neovim 0.11+**（LazyVim 的要求）
+- **Emacs 29+**（配置用到 `keymap-set`；实际开发验证于 30.1）
 - Windows 自带 PowerShell 5.1 即可
 - 建议装 `ripgrep`、`fd`，LazyVim 的搜索会用到
+- 可选：[pandoc](https://pandoc.org/)（`winget install JohnMacFarlane.Pandoc`），Markdown 预览/导出要用
 
 ## License
 

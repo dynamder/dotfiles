@@ -1,0 +1,33 @@
+# Emacs 运行时产物
+#
+# 这个目录就是 Emacs 的 user-emacs-directory（安装脚本会把
+# %APPDATA%\.emacs.d 和 ~/.emacs.d 都链接到这里），所以 Emacs 自己写出来的
+# 东西都会落在仓库里。以下全部不纳入版本控制。
+#
+# 注意：gitignore 只支持整行注释，行尾 # 会被当成模式的一部分，别那么写。
+
+# package.el 装的包
+/elpa/
+
+# 原生编译缓存
+/eln-cache/
+
+# 自动保存、备份
+/auto-save/
+/auto-save-list
+/backup/
+
+# transient / url / 其他持久化状态
+/transient/
+/url/
+
+# 会话历史与书签
+/bookmarks
+/recentf
+/history
+
+# Customize 界面写出来的设置
+/custom.el
+
+# 字节码
+*.elc
