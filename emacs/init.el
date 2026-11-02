@@ -21,17 +21,29 @@
 (defvar my/load-times nil
   "各模块加载耗时，形如 ((模块 . 秒) ...)，供 `my/startup-report' 查看。")
 
-(defvar my/packages-ready nil
-  "第三方依赖是否可用。由下面计算，见 `my/bootstrap-packages'。")
+(defvar my/pre-init-total
+  (and before-init-time (float-time (time-since before-init-time)))
+  "进入 init.el 之前已经花掉的时间（进程启动 + dump + early-init）。
+在这台机器上若它偏大，说明慢在 Emacs 自身而不是配置。")
+
+(defvar my/init-total nil
+  "启动总耗时（秒）。在 `after-init-hook' 里记下——必须那时算，不能等用户调用
+报告命令时现算，否则算的是「启动完到现在过了多久」。")
 
 (defun my/startup-report ()
-  "显示各模块加载耗时和总启动时间，排「启动慢」用。"
+  "显示启动耗时拆解：进入 init 前 / 各模块 / init 之后，排「启动慢」用。"
   (interactive)
-  (message "init total %.2fs | %s"
-           (float-time (time-since before-init-time))
-           (mapconcat (lambda (c) (format "%s %.2fs" (car c) (cdr c)))
-                      (reverse my/load-times)
-                      " | ")))
+  (let* ((total (or my/init-total
+                    (and before-init-time (time-since before-init-time))))
+         (total (float-time total))
+         (pre (or my/pre-init-total 0))
+         (sum (apply #'+ (mapcar #'cdr my/load-times)))
+         (post (max 0 (- total pre sum))))
+    (message "startup %.2fs (before-init %.2fs, modules %.2fs, after %.2fs) | %s"
+             total pre sum post
+             (mapconcat (lambda (c) (format "%s %.2fs" (car c) (cdr c)))
+                        (reverse my/load-times)
+                        " | "))))
 
 ;; 依赖是否就绪 = 索引缓存存在 + 抽查一个包。
 ;; 没就绪时只跳过，不刷一屏 "Cannot open load file"。
@@ -61,10 +73,20 @@
 (when (file-exists-p custom-file)
   (load custom-file t t))
 
-;; 启动明显变慢时给一句提示，附上 M-x my/startup-report 的入口。
-(let ((total (float-time (time-since before-init-time))))
-  (when (> total 3)
-    (message "Slow startup: %.1fs. Run M-x my/startup-report for a breakdown." total)))
+;; 启动总耗时必须在「启动结束的那一刻」记下来。
+;; 不能用 `(time-since before-init-time)' 在报告命令里现算——那算的是
+;; 「启动完之后又过了多久」，用户过一会儿再看就会得到几十秒的假数字。
+;; 用具名函数挂 hook，重复 load 这个文件也不会叠加。
+(defun my/--record-init-time ()
+  "在启动结束时记录总耗时。"
+  (when (and before-init-time after-init-time)
+    (setq my/init-total
+          (float-time (time-subtract after-init-time before-init-time)))
+    (when (> my/init-total 3)
+      (message "Slow startup: %.1fs. Run M-x my/startup-report for a breakdown."
+               my/init-total))))
+
+(add-hook 'after-init-hook #'my/--record-init-time)
 
 ;; 放在最后，让它留在 echo area 里。
 (unless my/packages-ready
