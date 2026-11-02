@@ -73,7 +73,8 @@ Windows 上 `gnutls-trustfiles' 默认是一串 `/etc/ssl/...' 的 Unix 路径�
   '(vertico orderless marginalia consult     ; 补全与搜索
     nerd-icons doom-modeline                 ; modeline
     markdown-mode edit-indirect              ; markdown 本体
-    mixed-pitch olivetti valign)             ; 写作排版
+    mixed-pitch olivetti valign              ; 写作排版
+    apheleia consult-eglot zig-ts-mode)      ; 代码：格式化 / LSP 符号 / zig
   "配置依赖的第三方包。增删依赖时同步维护。")
 
 ;;; ---------------------------------------------------------------------------

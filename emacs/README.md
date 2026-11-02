@@ -1,6 +1,8 @@
 # Emacs 配置
 
-目标只有一个：**中文 Markdown 写得舒服**。不装 LSP、不装 git 客户端，写代码还是回 nvim。
+现在管两件事：**中文 Markdown 写得舒服**，**Rust / Zig 能直接写**
+（`rust-ts-mode` + `eglot`、`zig-ts-mode` + `zls` 各一套，没有 evil）。
+仍然不装 git 客户端——提交还是回命令行或 nvim。
 
 ## 结构
 
@@ -12,7 +14,9 @@ emacs/                     ← 这就是 ~/.emacs.d
 │   ├── my-packages.el     包源（GNU + NonGNU + MELPA）、use-package 设置
 │   ├── my-ui.el           字体、主题、doom-modeline、窗口与交互
 │   ├── my-completion.el   vertico / orderless / marginalia / consult
-│   └── my-markdown.el     写作环境：软换行、比例字体、居中栏、表格对齐
+│   ├── my-markdown.el     写作环境：软换行、比例字体、居中栏、表格对齐
+│   ├── my-rust.el         Rust：rust-ts-mode + eglot + rustfmt
+│   └── my-zig.el          Zig：zig-ts-mode + zls + zig fmt
 └── themes/
     ├── rose-pine-common.el      三个变体共用的调色板 + 脸面表
     ├── rose-pine-theme.el       主变体（深色）
@@ -37,7 +41,22 @@ emacs/                     ← 这就是 ~/.emacs.d
    ```
    装完会提示结果；有装不上的包会列出来，重跑即可。
 3. **重启 Emacs**。装包只在内存里生效，重启后才全部加载。
-4. 预览/导出需要 **pandoc**：
+4. 装 **tree-sitter 语法库**。Rust / Zig / Markdown 的高亮全靠它，而官方
+   Windows 构建只带 `libtree-sitter.dll` 本体，语法库得自己编：
+   ```elisp
+   M-x treesit-install-language-grammar RET rust RET
+   ;; 再依次装 zig / markdown / markdown_inline
+   ```
+   需要 PATH 上有 C 编译器。这台机器上没装 mingw，而是借现成的 Zig：
+   `D:\bin\cc.bat` 内容是 `@zig cc -target x86_64-windows-gnu %*`，
+   `c++.bat` 把里面的 `cc` 换成 `c++`；该目录通过用户变量 `MYBIN` 挂进 PATH
+   （PATH 里写的是 `%MYBIN%`，换目录只改这个变量）。实测 Emacs 的
+   `executable-find` 认 `.bat`、`call-process` 也能直接执行，所以不用再装 mingw。
+   语法库会落在 `~/.emacs.d/tree-sitter/`，已在 `.gitignore` 里。
+   写 Zig 的话也可以直接用 `M-x zig-ts-install-grammars`，它会把 zig 和两个
+   markdown 语法库一次装齐。
+   验证：`M-: (treesit-language-available-p 'rust)` 返回 `t`。
+5. 预览/导出需要 **pandoc**：
    ```powershell
    winget install JohnMacFarlane.Pandoc
    ```
@@ -140,6 +159,9 @@ Using cached index (6772 packages). C-u to force a refresh.
 | `C-\` | 切换输入法；`C-u C-\` 选具体方案 |
 | `C-h k` | 这个键是干什么的 |
 | `C-h f` / `C-h v` | 查函数 / 变量文档 |
+| `M-.` / `M-,` | 跳到定义 / 跳回来（xref，由 LSP 提供） |
+| `M-g M-n` | 跳到 `*compilation*` 里的下一个错误 |
+| `C-c C-e` | 列出当前项目的所有符号（consult-eglot，LSP 连上后可用） |
 
 Markdown 里（`markdown-mode` 自带，未改动）：
 
@@ -153,6 +175,14 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 | `TAB` / `S-TAB` | 折叠/展开标题（和 org-mode 一致） |
 | `C-c '` | 把代码块拿到独立 buffer 里按真实语言编辑 |
 | `C-c C-h` | 列出当前 buffer 的全部按键 |
+
+代码那边不另设键位表：补全、跳转、重命名、格式化都走 eglot 的默认绑定，
+和 Emacs 原生那套一致。两个语言各自只多一件事：
+
+| 语言 | 保存时自动格式化 | 依赖的外部程序 |
+| --- | --- | --- |
+| Rust | `rustfmt`（apheleia，异步） | `rust-analyzer`、`rustfmt`，都是 rustup 组件 |
+| Zig | `zig fmt --stdin`（apheleia，异步） | `zls`，单独安装并放进 PATH |
 
 ## 主题
 
@@ -227,6 +257,13 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 - **`valign` 按显示宽度对齐表格**，中文表格基本靠它。官方说明：超过 4000 字符的
   大表格不处理，≥100 行会卡。
 - **没装 pandoc 时**预览/导出会报错，但编辑、折叠、补全都不受影响。
+- **tree-sitter 语法库不在 Emacs 发行包里**。官方 Windows 构建只带
+  `libtree-sitter.dll`，语法库要自己编译安装；没装时 `rust-ts-mode` 能打开文件，
+  但基本没有高亮（`*Warnings*` 里会有一行 grammar 提示）。
+- **格式化交给外部程序**。apheleia 异步跑 `rustfmt` / `zig fmt --stdin`，
+  输入不会被打断；但程序不在 PATH 上时，保存会在 echo area 报
+  `Could not find executable`，文件内容不受影响。
+- **没有装调试器**。需要断点调试时上 `dape`（GNU ELPA），当前刻意留白。
 
 ## 文案约定
 
@@ -253,6 +290,10 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 | 哪些依赖没装上 | `M-x my/packages-status` |
 | 索引过期 | 重跑 `M-x my/bootstrap-packages`（不要用裸的 `M-x package-refresh-contents`，它没有失败切换，也不在子进程里） |
 | 字体没生效 | `C-h v my/latin-font`，确认名字是注册名而非文件名 |
+| **打开 `.rs` / `.zig` 几乎没高亮** | 语法库没装：`M-: (treesit-language-available-p 'rust)` 为 `nil` 就去 `M-x treesit-install-language-grammar` |
+| **LSP 没连上**（modeline 没有 eglot 标识） | `M-x eglot` 手动起一次，看报什么；`rust-analyzer` / `zls` 必须在 PATH 上。zig 那边还要确认 `zig-ts-mode` 已登记到 `eglot-server-programs` |
+| **保存后代码被格式化坏 / 没格式化** | `M-x apheleia-mode` 开关对比；`M-: (alist-get 'zig-ts-mode apheleia-mode-alist)` 看映射是否生效 |
+| **`zig-ts-mode` 找不到** | `M-x my/packages-status` 看它是否 `ok`；它在 MELPA 上，源不通就 `C-u M-x my/bootstrap-packages` 重刷索引 |
 
 ## 调试
 

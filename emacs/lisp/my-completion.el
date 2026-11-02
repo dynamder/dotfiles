@@ -46,7 +46,14 @@
            ("M-g g" . consult-goto-line)
            ("C-c i" . consult-imenu))
     :custom
-    (consult-narrow-key "<")))
+    (consult-narrow-key "<"))
+
+  ;; eglot 的符号列表接到 consult：按名字找函数/结构体/方法，列表里有位置预览。
+  ;; 只在 LSP 接管的 buffer 里有效，所以绑在 eglot-mode-map 上而不是全局。
+  (use-package consult-eglot
+    :after eglot
+    :bind (:map eglot-mode-map
+                ("C-c C-e" . consult-eglot-symbols))))
 
 ;; 下面几条是 Emacs 自带的，不依赖第三方包，所以放在判断之外。
 

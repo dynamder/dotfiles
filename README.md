@@ -1,6 +1,6 @@
 # dotfiles
 
-我的个人配置仓库：**Neovim（基于 [LazyVim](https://github.com/LazyVim/LazyVim)）写代码，Emacs 写中文文档**。
+我的个人配置仓库：**Neovim（基于 [LazyVim](https://github.com/LazyVim/LazyVim)）写代码；Emacs 写中文文档，也接 Rust / Zig 的开发**（`rust-ts-mode` + `eglot`、`zig-ts-mode` + `zls`）。
 
 两套配置都通过**软链接**（Windows 上是目录联接 junction）挂到各自的配置目录，所以仓库里的改动会立刻生效，多台设备之间用 git 同步。
 
@@ -25,7 +25,7 @@ dotfiles/
 └── emacs/               # 真正的 Emacs 配置，会被链接到 ~/.emacs.d
     ├── early-init.el    # 帧创建前：关 chrome、定字体
     ├── init.el          # 入口，只做装配
-    ├── lisp/            # packages / ui / completion / markdown
+    ├── lisp/            # packages / ui / completion / markdown / rust / zig
     └── themes/          # 自己写的 rose-pine（main / moon / dawn）
 ```
 
@@ -108,12 +108,15 @@ powershell -ExecutionPolicy Bypass -File .\tests\install-idempotency.ps1
 
 ## Emacs 配置
 
-只做一件事：**写中文 Markdown 写得舒服**。不装 LSP、不装 git 客户端，代码仍然交给 nvim。
+主力是中文 Markdown；Rust / Zig 则吃 Emacs 30 的内置能力——`rust-ts-mode` + `eglot`、
+`zig-ts-mode` + `zls`，没有 evil，也没有 git 客户端。
 
 - 主题是自己按[官方色板](https://rosepinetheme.com/palette/)写的 `rose-pine`，三个变体，`C-c t` 切换
 - 补全用 vertico + orderless + marginalia + consult
 - 字体：`JetBrainsMono NF`（等宽 + Nerd 图标）+ `Noto Serif SC`（中文正文）
 - Markdown：软换行、比例字体、居中窄栏、CJK 表格对齐
+- Rust / Zig：tree-sitter 高亮 + eglot（rust-analyzer / zls）+ 保存时 rustfmt / zig fmt
+- 语法库要单独编译：首次装好依赖后跑一次 `M-x treesit-install-language-grammar`
 
 细节、键位速查和排错见 [emacs/README.md](emacs/README.md)。
 

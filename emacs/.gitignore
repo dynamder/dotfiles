@@ -9,6 +9,9 @@
 # package.el 装的包
 /elpa/
 
+# tree-sitter 语法库（每台机器自己编译，二进制不进版本库）
+/tree-sitter/
+
 # 原生编译缓存
 /eln-cache/
 
