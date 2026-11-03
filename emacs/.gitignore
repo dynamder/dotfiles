@@ -24,6 +24,9 @@
 /transient/
 /url/
 
+# Emacs 自己生成的本地化教程（M-x help-with-tutorial 会往这里写 .tut）
+/tutorial/
+
 # 会话历史与书签
 /bookmarks
 /recentf
