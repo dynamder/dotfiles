@@ -1,8 +1,8 @@
 # Emacs 配置
 
-现在管两件事：**中文 Markdown 写得舒服**，**Rust / Zig 能直接写**
-（`rust-ts-mode` + `eglot`、`zig-ts-mode` + `zls` 各一套，没有 evil）。
-仍然不装 git 客户端——提交还是回命令行或 nvim。
+现在管三件事：**中文 Markdown 写得舒服**，**Rust / Zig 能直接写**
+（`rust-ts-mode` + `eglot`、`zig-ts-mode` + `zls` 各一套，没有 evil），
+**顺手调出 lazygit**——不装 magit，git 界面直接用你已经在用的那个 TUI。
 
 ## 结构
 
@@ -14,7 +14,9 @@ emacs/                     ← 这就是 ~/.emacs.d
 │   ├── my-packages.el     包源（GNU + NonGNU + MELPA）、use-package 设置
 │   ├── my-ui.el           字体、主题、doom-modeline、窗口与交互
 │   ├── my-completion.el   vertico / orderless / marginalia / consult
+│   │                      + corfu / cape（buffer 内补全）、embark、which-key
 │   ├── my-markdown.el     写作环境：软换行、比例字体、居中栏、表格对齐
+│   ├── my-git.el          git：在项目根目录起一个 lazygit 终端（C-c g）
 │   ├── my-treesit.el      tree-sitter 语法库：源地址、编译器、一键安装
 │   ├── my-rust.el         Rust：rust-ts-mode + eglot + rustfmt
 │   └── my-zig.el          Zig：zig-ts-mode + zls + zig fmt
@@ -166,7 +168,7 @@ Using cached index (6772 packages). C-u to force a refresh.
 Arch 系一条命令：
 
 ```bash
-sudo pacman -S --needed git base-devel rust rustfmt rust-analyzer zls \
+sudo pacman -S --needed git base-devel rust rustfmt rust-analyzer zls lazygit \
     ttf-jetbrains-mono-nerd noto-fonts-cjk
 ```
 
@@ -175,6 +177,7 @@ sudo pacman -S --needed git base-devel rust rustfmt rust-analyzer zls \
 | 编译语法库 | `base-devel`（gcc） | treesit 直接调 `cc`，Linux 不需要包装脚本 |
 | Rust 补全 | `rust-analyzer` | 用 rustup 的话：`rustup component add rust-analyzer rustfmt` |
 | Zig 补全 | `zls` | 大版本要跟 zig 对得上 |
+| git 界面 | `lazygit` | `C-c g` 调出；不在 PATH 上会明确报错，不会静默失败 |
 | 字体 | `ttf-jetbrains-mono-nerd`、`noto-fonts-cjk` | 名字见「字体」一节 |
 
 装完用 `M-: (treesit-available-p)` 确认这个 Emacs 编进了 tree-sitter
@@ -205,6 +208,8 @@ sudo pacman -S --needed git base-devel rust rustfmt rust-analyzer zls \
 | `C-s` | 搜索当前文件（consult-line，带预览） |
 | `C-c t` | 在 rose-pine 三个变体间切换 |
 | `C-c i` | 跳到当前文件的标题/函数（consult-imenu） |
+| `C-c g` | 在项目根目录打开 lazygit；再按一次切回同一个实例 |
+| `C-.` / `C-;` | 对当前补全候选做操作 / 直接执行它的默认动作（embark） |
 | `C-\` | 切换输入法；`C-u C-\` 选具体方案 |
 | `C-h k` | 这个键是干什么的 |
 | `C-h f` / `C-h v` | 查函数 / 变量文档 |
@@ -225,8 +230,8 @@ Markdown 里（`markdown-mode` 自带，未改动）：
 | `C-c '` | 把代码块拿到独立 buffer 里按真实语言编辑 |
 | `C-c C-h` | 列出当前 buffer 的全部按键 |
 
-代码那边不另设键位表：补全、跳转、重命名、格式化都走 eglot 的默认绑定，
-和 Emacs 原生那套一致。两个语言各自只多一件事：
+代码那边不另设键位表：补全（corfu，边打边弹；`TAB` 也可手动触发）、跳转、重命名、
+格式化都走 eglot 的默认绑定，和 Emacs 原生那套一致。两个语言各自只多一件事：
 
 | 语言 | 保存时自动格式化 | 依赖的外部程序 |
 | --- | --- | --- |
@@ -341,6 +346,8 @@ interactive 的，`M-x my/apply-fonts` 也行）。
 | **代理拦了某个源** | `my/bootstrap-packages` 会换下一个候选；全挂时会自动**退回直连**再试一轮 |
 | **不用代理** | 默认就是直连。想手动指定端口：`(setq my/proxy-override "127.0.0.1:7897")`（优先于系统设置） |
 | **启动后界面毫无变化** | 先看 Emacs 到底读哪个目录：`M-: (expand-file-name "~")`。Windows 上没设 `HOME` 时它是 `c:/Users/<你>/AppData/Roaming`，配置就该在 `%APPDATA%\.emacs.d`——确认那里也是 junction，见根 README |
+| **起来了但没有补全 / `.md` 不进 markdown-mode / 主题不对** | `M-: my/packages-ready`。为 `nil` 说明第三方配置整段被跳过——它只能由 `my-packages.el` 在 `package-initialize` 之后设置，别在 `init.el` 里提前算（那时索引还是空的，算出来永远 `nil`） |
+| **`C-c g` 没反应 / 报找不到程序** | `M-: (executable-find "lazygit")`。不在 PATH 上会直接 `user-error` 报出来，不会静默失败 |
 | 启动慢 / 想量化 | `M-x emacs-init-time`（正常应 < 1 秒，因为它不联网） |
 | 报错信息 | `*Messages*` buffer |
 | 启动时某步失败 | `M-x toggle-debug-on-error` 再复现，会弹 backtrace |

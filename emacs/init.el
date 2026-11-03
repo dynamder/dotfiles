@@ -10,6 +10,7 @@
 ;;   my-ui.el          字体、主题、窗口外观、modeline
 ;;   my-completion.el  补全与搜索
 ;;   my-markdown.el    markdown 写作环境
+;;   my-git.el         git：用 lazygit 当界面（C-c g）
 ;;   my-treesit.el     tree-sitter 语法库：源地址、编译器、M-x my/install-treesit-grammars
 ;;   my-rust.el        Rust：rust-ts-mode + eglot + rustfmt
 ;;   my-zig.el         Zig：zig-ts-mode + zls + zig fmt
@@ -48,21 +49,21 @@
                         (reverse my/load-times)
                         " | "))))
 
-;; 依赖是否就绪 = 索引缓存存在 + 抽查一个包。
-;; 没就绪时只跳过，不刷一屏 "Cannot open load file"。
-;; 先 require package：下面用的两个函数都在它里面。
+;; 依赖是否就绪由 my-packages.el 判断——只有它 `package-initialize' 之后
+;; 才看得见索引缓存里有什么。这里只提供一个默认值，免得别的模块读到 void。
+;;
+;; **不要**在这个位置自己算：这一刻 `package-archive-contents' 还是空的，
+;; 算出来永远是 nil，下面所有 `(when my/packages-ready ...)' 的整段会被静默
+;; 跳过（vertico / markdown-mode / apheleia 全不加载，但 Emacs 照样起来）。
 (require 'package)
-(condition-case nil
-    (setq my/packages-ready
-          (and (bound-and-true-p package-archive-contents)
-               (package-installed-p 'vertico)))
-  (error (setq my/packages-ready nil)))
+(defvar my/packages-ready nil
+  "第三方依赖是否就绪。由 my-packages.el 在 `package-initialize' 之后设置。")
 
 ;; 任何一个模块炸掉都不该让整个 Emacs 起不来。
 ;; my-ui 里"不依赖包"的部分（字体、主题、窗口）排在 modeline 之前，
 ;; 所以即使依赖缺失，外观设置也照样生效。
 (dolist (module '(my-packages my-ui my-completion my-markdown
-                  my-treesit my-rust my-zig))
+                  my-git my-treesit my-rust my-zig))
   (let ((t0 (float-time)))
     (condition-case err
         (require module)

@@ -25,7 +25,7 @@ dotfiles/
 └── emacs/               # 真正的 Emacs 配置，会被链接到 ~/.emacs.d
     ├── early-init.el    # 帧创建前：关 chrome、定字体
     ├── init.el          # 入口，只做装配
-    ├── lisp/            # packages / ui / completion / markdown / rust / zig
+    ├── lisp/            # packages / ui / completion / markdown / git / rust / zig
     └── themes/          # 自己写的 rose-pine（main / moon / dawn）
 ```
 
@@ -109,10 +109,11 @@ powershell -ExecutionPolicy Bypass -File .\tests\install-idempotency.ps1
 ## Emacs 配置
 
 主力是中文 Markdown；Rust / Zig 则吃 Emacs 30 的内置能力——`rust-ts-mode` + `eglot`、
-`zig-ts-mode` + `zls`，没有 evil，也没有 git 客户端。
+`zig-ts-mode` + `zls`，没有 evil。git 不装 magit，`C-c g` 直接调出已在用的 lazygit。
 
 - 主题是自己按[官方色板](https://rosepinetheme.com/palette/)写的 `rose-pine`，三个变体，`C-c t` 切换
-- 补全用 vertico + orderless + marginalia + consult
+- 补全用 vertico + orderless + marginalia + consult；buffer 内补全走 corfu + cape，
+  `C-.` / `C-;` 用 embark 对候选直接做操作
 - 字体：`JetBrainsMono NF` / `Noto Serif SC`（Windows 名），Linux 上自动换成
   `JetBrainsMono Nerd Font` / `Noto Serif CJK SC`
 - Markdown：软换行、比例字体、居中窄栏、CJK 表格对齐

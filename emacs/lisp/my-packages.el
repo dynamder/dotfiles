@@ -71,11 +71,16 @@ Windows 上 `gnutls-trustfiles' 默认是一串 `/etc/ssl/...' 的 Unix 路径�
 
 (defconst my/packages
   '(vertico orderless marginalia consult     ; 补全与搜索
+    corfu cape                               ; buffer 内补全 / 多来源 capf
+    embark embark-consult                    ; 对候选本身做操作
     nerd-icons doom-modeline                 ; modeline
     markdown-mode edit-indirect              ; markdown 本体
     mixed-pitch olivetti valign              ; 写作排版
     apheleia consult-eglot zig-ts-mode)      ; 代码：格式化 / LSP 符号 / zig
-  "配置依赖的第三方包。增删依赖时同步维护。")
+  "配置依赖的第三方包。增删依赖时同步维护。
+
+`which-key' 不在此列——Emacs 30 起它内置，不需要装。
+lazygit 也不在这里：它是外部程序，见 lisp/my-git.el。")
 
 ;;; ---------------------------------------------------------------------------
 ;;; 二、代理：惰性检测，端口不写死
@@ -392,6 +397,17 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
 
 (when (null package-archive-contents)
   (message "No package index yet. Run M-x my/bootstrap-packages once, then restart Emacs."))
+
+;; 依赖是否就绪 = 索引缓存存在 + 抽查一个包。
+;;
+;; 必须在这里算，**不能**在 init.el 里算：`package-initialize' 之前
+;; `package-archive-contents' 还是空的，算出来永远是 nil——于是 init.el 后面
+;; 所有 `(when my/packages-ready ...)' 的整段配置被静默跳过：vertico、
+;; markdown-mode、apheleia、corfu 全都不加载，而 Emacs 照样能启动，只是变成
+;; 一个几乎原生的编辑器。这个坑不报错，只看表面完全看不出来。
+(setq my/packages-ready
+      (and package-archive-contents
+           (package-installed-p 'vertico)))
 
 (require 'use-package)
 
