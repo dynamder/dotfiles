@@ -389,25 +389,41 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
     (and chosen package-archive-contents)))
 
 ;;; ---------------------------------------------------------------------------
-;;; 六、启动：只读本地索引
+;;; 六、启动：只激活已装的包，不读归档索引
+;;;
+;;; 这里原来写的是 (package-initialize)。实测它要 0.135s，而
+;;; `package-activate-all' 只要 0.023s——差的 0.11s 全花在把 6700 多条归档
+;;; 索引读进内存。**激活已装的包并不需要那份索引**，只有装包才需要，所以改成
+;;; 按需读（`my/ensure-archive-contents'）。0.11s 约占整个启动时间的六分之一，
+;;; 是这套配置里最划算的一处优化。
 ;;; ---------------------------------------------------------------------------
 
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
-(package-initialize)
+(package-activate-all)
 
-(when (null package-archive-contents)
+(defun my/ensure-archive-contents ()
+  "按需把 ELPA 归档索引读进内存，返回 `package-archive-contents'。
+启动路径上**不**调用它，理由见上面那段注释。"
+  (interactive)
+  (unless package-archive-contents
+    (condition-case err
+        (package-read-all-archive-contents)
+      (error (message "Failed to read archive index: %s"
+                      (error-message-string err)))))
+  package-archive-contents)
+
+(unless (file-directory-p (expand-file-name "archives" package-user-dir))
   (message "No package index yet. Run M-x my/bootstrap-packages once, then restart Emacs."))
 
-;; 依赖是否就绪 = 索引缓存存在 + 抽查一个包。
+;; 依赖是否就绪 = 已装的包里抽查一个。
 ;;
-;; 必须在这里算，**不能**在 init.el 里算：`package-initialize' 之前
-;; `package-archive-contents' 还是空的，算出来永远是 nil——于是 init.el 后面
-;; 所有 `(when my/packages-ready ...)' 的整段配置被静默跳过：vertico、
-;; markdown-mode、apheleia、corfu 全都不加载，而 Emacs 照样能启动，只是变成
-;; 一个几乎原生的编辑器。这个坑不报错，只看表面完全看不出来。
+;; 必须在这里算，**不能**在 init.el 里算：那时包还没激活、索引也没读，算出来
+;; 永远是 nil——于是 init.el 后面所有 `(when my/packages-ready ...)' 的整段
+;; 配置被静默跳过：vertico、markdown-mode、apheleia、corfu 全都不加载，而
+;; Emacs 照样能启动，只是变成一个几乎原生的编辑器。这个坑不报错，表面完全
+;; 看不出来，只能靠 `M-: my/packages-ready` 发现。
 (setq my/packages-ready
-      (and package-archive-contents
-           (package-installed-p 'vertico)))
+      (and (package-installed-p 'vertico) t))
 
 (require 'use-package)
 
@@ -429,6 +445,10 @@ FORM 写成临时 `.el' 文件、用 `-l' 加载，**不能**用 `--eval'：
   (unless (or noninteractive
               (y-or-n-p (format "Install %d packages? " (length my/packages))))
     (user-error "Cancelled"))
+  ;; 启动时没读索引（见第六节：省 0.11s），真要装包了才读本地那一份。
+  ;; 不读的话下面 `package-archive-contents' 永远是 nil，每次都会重新探测、
+  ;; 重新下载索引——正好把省下的时间又赔回去。
+  (my/ensure-archive-contents)
   (let ((ok (if (and (not force) package-archive-contents)
                 (progn
                   (message "Using cached index (%d packages). C-u to force a refresh."
@@ -500,10 +520,13 @@ buffer 先显示再逐行填充，所以能立刻看到进度，不用等全部�
     (insert (format "代理                : %s\n" (or my/proxy "直连（未检测）")))
     (insert (format "探测 / 下载超时     : %s 秒 / %s 秒\n"
                     my/probe-timeout my/download-timeout))
+    ;; 索引现在是按需读的（启动时为空是正常状态，不代表没装），
+    ;; 这里为了报告准确，临时读一次。
     (insert (format "\n索引：%s\n"
-                    (if package-archive-contents
-                        (format "%d 个包（已缓存）" (length package-archive-contents))
-                      "空 —— 需要 M-x my/bootstrap-packages")))
+                    (let ((contents (my/ensure-archive-contents)))
+                      (if contents
+                          (format "%d 个包（已缓存；启动时不读）" (length contents))
+                        "空 —— 需要 M-x my/bootstrap-packages"))))
     (insert "\n各归档当前地址：\n")
     (dolist (a package-archives)
       (insert (format "  %-8s %s\n" (car a) (cdr a))))

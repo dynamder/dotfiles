@@ -78,8 +78,8 @@ emacs/                     ← 这就是 ~/.emacs.d
 > 为什么不是「启动时自动装」：`use-package` 的 `:ensure` 在包缺失时会主动调用
 > `package-refresh-contents`，等于把同步网络请求塞进启动路径。一旦某个源被丢包，
 > Emacs 会停在 `Contacting host: elpa.gnu.org:443`，而且卡在 C 层连接调用里，
-> `C-g` 也按不动。所以装包改成显式动作，启动路径上不发起任何网络请求
-> （实测启动 0.2 秒）。
+> `C-g` 也按不动。所以装包改成显式动作，启动路径上不发起任何网络请求。
+> 启动耗时见下面的「启动速度」。
 
 ### 源不通会自动换
 
@@ -195,6 +195,49 @@ sudo pacman -S --needed git base-devel rust rustfmt rust-analyzer zls lazygit \
 
 `bin/*.bat` 在 Linux 上不参与任何流程。`.gitattributes` 固定它们的 CRLF，
 只是为了让 Windows 上 checkout 回来还能跑。
+
+## 启动速度
+
+量的是 batch 模式（`emacs --batch -l init.el --eval '(kill-emacs)'`）。它不含
+GUI 的建帧、字体落地和主题渲染，所以**真实 GUI 启动会比这组数更大**。要看真实
+数字就在你自己的会话里跑 `M-x my/startup-report`，它把耗时拆成
+before-init / 各模块 / after 三段。
+
+| | 空 Emacs 基线 | 加载完整配置 | 配置本身 |
+| --- | --- | --- | --- |
+| 优化前 | 0.174s | 0.70s | ≈ 0.53s |
+| 优化后 | 0.174s | 0.60s | ≈ 0.43s |
+
+优化后各模块（`my/load-times`）：
+
+```
+my-packages   0.081s
+my-ui         0.072s
+my-completion 0.057s
+my-treesit    0.009s
+其余四个      各 0.002s
+```
+
+### 做了什么
+
+把 `(package-initialize)` 换成 `package-activate-all`。前者实测 0.135s，
+后者 0.023s——差的 0.11s 全花在把 6700 多条归档索引读进内存。而**激活已装的
+包并不需要那份索引**，只有装包需要。所以索引改成按需读，见
+`my/ensure-archive-contents`；`M-x my/bootstrap-packages` 和
+`M-x my/packages-status` 会自己触发它。效果：`my-packages` 从 0.185s 降到
+0.081s。
+
+注意由此带来的一个后果：启动后 `package-archive-contents` 是 `nil` 属于
+**正常状态**，不代表没装包。判断依赖是否就绪看 `my/packages-ready`。
+
+### 试过但不值得
+
+字节编译 `lisp/*.el` 只省 0.03s（约 4%），却要背上 `.elc` 过期的风险：`.elc`
+比 `.el` 新时 Emacs 优先加载它，改完配置忘了重编译就是在跑旧代码。`*.elc`
+仍然留在 gitignore 里，别往仓库里塞。
+
+剩下的大头是 `my-ui` 的 0.072s，里面主要是字体探测和 `load-theme`——这两样
+必须在首帧之前完成，延后只会换来启动后一次可见的跳变，所以不动。
 
 ## 键位速查
 
